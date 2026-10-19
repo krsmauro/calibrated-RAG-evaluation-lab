@@ -2,7 +2,7 @@
 
 An open-source harness that answers the question every team changing a RAG system has: **did this change make retrieval or answers better, by how much, and can I trust the judge that says so?**
 
-> **Status: design complete, implementation not started.** Nothing below has been run yet. Sections describe what the system is designed to do and why. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
+> **Status (2026-10-19): design complete, foundation built, no evaluation results yet.** The Python project skeleton, the Postgres and pgvector stack with its first migration, settings, JSON logging, the CUAD download and measurement scripts, the approved [evaluation spec](docs/eval-spec.md) and the first decision records exist and pass lint, type checks and unit tests. Nothing has been evaluated yet: the service, ingestion, retrieval, harness and statistics are still to be written, and every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
 
 ## Contents
 
@@ -44,10 +44,12 @@ The system under test is a small but real hybrid-retrieval RAG service (FastAPI,
 | [docs/findings/](docs/findings/) | Things learned along the way that affect the project |
 | [docs/adr/](docs/adr/) | Architecture decision records, written when each decision is made |
 | [docs/results.md](docs/results.md) | The ledger of measured headline numbers and the commands that produce them |
-| `docs/eval-spec.md` | (Phase 1) exactly what each metric and the gate mean |
+| [docs/eval-spec.md](docs/eval-spec.md) | Exactly what each metric, split and the gate mean (approved) |
+| [DATA_LICENSES.md](DATA_LICENSES.md) | Licenses and attribution for the datasets |
+| `scripts/`, `Makefile`, `docker-compose.yml` | Dataset download and measurement scripts; the one-command entry points; the Postgres and pgvector stack |
 | `.claude/skills/master-code-skill/` | Coding rules for AI agents working in this repo |
 
-Planned code layout (nothing exists yet):
+Code layout. The packages below exist; only `config.py` and `logs.py` have code so far, and each subpackage is an empty placeholder with a one-line docstring until its phase:
 
 ```text
 src/ragcalibrate/
@@ -58,7 +60,8 @@ src/ragcalibrate/
 ├── harness/   runner, HTTP adapter, metrics, judge, SQLite run store, CLI
 ├── stats/     bootstrap, kappa, gate decision: pure functions, no I/O
 └── report/    Markdown/HTML reports, PR comment rendering
-migrations/ evalsets/ configs/ action/ tests/
+migrations/ (Alembic, baseline exists)  tests/  scripts/
+planned, not yet created: evalsets/ configs/ action/
 ```
 
 ---
@@ -116,7 +119,7 @@ Each step says what happens, why it is done that way, and what the obvious alter
 
 `make data` downloads CUAD, verifies a checksum, and puts it in a gitignored directory.
 
-- **CUAD**: 510 commercial contracts from SEC filings, 41 clause categories ("Governing Law", "Termination for Convenience", ...), more than 13,000 expert labels, CC BY 4.0. Each label is a **character offset** into the contract text. That is what makes span-level ground truth possible.
+- **CUAD**: 510 commercial contracts from SEC filings, 41 clause categories ("Governing Law", "Termination for Convenience", ...), 13,823 expert labels (measured, finding F-008), CC BY 4.0. Each label is a **character offset** into the contract text. That is what makes span-level ground truth possible.
 - **Why CUAD**: the gold labels are human, positional and domain-expert. Most RAG benchmarks only say which *document* or *passage ID* is relevant, which hides chunking effects.
 - **Why not commit the raw data**: size, and the license requires attribution on anything derived; downloading with a checksum is reproducible and honest.
 - **Second corpus: QASPER** (questions over NLP papers, with evidence annotations). It exists to prove the tool is not CUAD-specific. Its evidence is paragraph text rather than offsets, so its adapter has to locate evidence in the full text, which is a real test of the corpus interface.
@@ -126,7 +129,7 @@ Each step says what happens, why it is done that way, and what the obvious alter
 A corpus adapter produces three things: `Document` (text), `Query` (id, document id, category, text, split, `answerable`), and `GoldSpan` (query id, document id, `start_char`, `end_char`).
 
 - **Offsets are half-open character offsets into the raw text, exactly as CUAD labeled it.** Any cleanup (collapsing whitespace, stripping page headers) shifts offsets and silently breaks the ground truth. So the project does not normalize the text, and a property test enforces `doc.text[start:end] == chunk.text` for every chunk.
-- **Unanswerable queries are kept.** Many (contract, category) pairs have no clause. The correct answer to those is "not present", and a system that always answers is wrong in a way you can only see if those queries exist. Retrieval metrics are computed on answerable queries only (recall is undefined with no gold span); abstention is scored separately.
+- **Unanswerable queries are kept.** Many (contract, category) pairs have no clause. The correct answer to those is "not present", and a system that always answers is wrong in a way you can only see if those queries exist. Retrieval metrics are computed on answerable queries only (recall is undefined with no gold span); abstention is scored separately. Measured on CUAD: 67.9% of the 20,910 pairs have no gold span, so a system that always abstains scores about 68% presence accuracy; that baseline is reported next to every presence number (finding F-008).
 - **Queries and gold spans are written to versioned, hashed files in `evalsets/`, separate from the service's database.** See step 5.
 
 ### Step 3: Split the data
@@ -393,20 +396,32 @@ Answers are short on purpose; the sections above hold the reasoning.
 
 ---
 
-## 10. Planned interface, stack, licenses
+## 10. Interface, stack, licenses
+
+Commands that work today (they need Docker running and `uv` installed; the first `make up` copies `.env.example` to a local `.env`, which holds development-only values and is gitignored):
+
+```bash
+make up                  # start Postgres 17 + pgvector 0.8.7 on 127.0.0.1:5433
+make down                # stop it (the data volume is kept)
+make data                # download CUAD, pinned to a commit and verified by sha256
+make lint                # ruff, ruff format check, pyright (strict on src/)
+make test                # unit and property tests
+uv run alembic upgrade head   # apply the schema (migration 0001: documents, chunks)
+uv run python -I scripts/cuad_facts.py   # reprint the CUAD measurements
+```
 
 Planned commands (none of these work yet):
 
 ```bash
-make up            # start Postgres + pgvector (and the service)
-make data          # download and checksum CUAD
 make ingest        # chunk, embed and load
 make eval          # run an experiment
 ragcalibrate run | compare | calibrate | report
 ```
 
+Contributors also need the `gitleaks` binary on their PATH for the pre-commit hook (`brew install gitleaks`), and `uv run pre-commit install` to activate the hooks.
+
 **Stack:** Python, FastAPI, Pydantic v2, asyncio, PostgreSQL (pgvector, full-text search), SQLite, Alembic, uv, ruff, pyright, pytest with Hypothesis and testcontainers, Docker Compose, GitHub Actions, optional Langfuse.
 
-**Licenses:** code is MIT (see [LICENSE](LICENSE)). CUAD is CC BY 4.0: credit The Atticus Project and link the license in any derived data; details will live in `DATA_LICENSES.md`. Other datasets are added only after their license is checked against the primary source.
+**Licenses:** code is MIT (see [LICENSE](LICENSE)). CUAD is CC BY 4.0: credit The Atticus Project and link the license in any derived data; details are in [DATA_LICENSES.md](DATA_LICENSES.md). Other datasets are added only after their license is checked against the primary source.
 
-**Prior art to know:** ARES (Saad-Falcon et al., 2023: trained judges and prediction-powered inference), LegalBench-RAG (Pipitone and Alami, 2024: legal retrieval benchmark with character-level precision and recall, built partly from CUAD), Ragas, DeepEval, promptfoo, TruLens, Langfuse evals. Their current features have not yet been verified for this project (plan step 1.1).
+**Prior art to know:** ARES (Saad-Falcon et al., 2023: trained judges and prediction-powered inference), LegalBench-RAG (Pipitone and Alami, 2024: legal retrieval benchmark with character-level precision and recall, built partly from CUAD), Ragas, DeepEval, promptfoo, TruLens, Langfuse evals. Their public docs were checked on 2026-10-19 (plan step 1.1); the results, and one place where the project's claimed differentiator needs narrowing, are in [finding F-009](docs/findings/F-009-prior-art-check.md).

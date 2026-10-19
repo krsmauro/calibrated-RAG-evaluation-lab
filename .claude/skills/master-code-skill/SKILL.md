@@ -15,7 +15,7 @@ A single entry point for all coding work in this repo. Layers:
 
 Keep this file lean. Detailed rules live in `references/`.
 
-> **Provenance**: adapted from the `master-code-skill` in `pivotia-app` (TypeScript monorepo) and `Legalware-app` (Firebase + React). Karpathy layer kept as is; frontend, mobile and i18n lanes dropped (no UI here); backend rules rewritten for Python; eval-integrity lane added. **The repo is pre-code**: the layout below comes from `docs/design/project-design.md` §13. If the real tree differs, trust the tree and update this file.
+> **Provenance**: adapted from the `master-code-skill` in `pivotia-app` (TypeScript monorepo) and `Legalware-app` (Firebase + React). Karpathy layer kept as is; frontend, mobile and i18n lanes dropped (no UI here); backend rules rewritten for Python; eval-integrity lane added. **The repo is early-stage** (Phase 1 of `docs/project-plan.md`): the skeleton, settings (`config.py`, with `load_settings()` as the only place `Settings` is built), JSON logging (`logs.py`), the Alembic baseline and the CUAD scripts exist; the other packages are empty placeholders. The layout below comes from `docs/design/project-design.md` §13. If the real tree differs, trust the tree and update this file. Project conventions already settled: ruff line length 100 with Markdown excluded from `ruff format`, pyright strict on `src/`, Python 3.12, Postgres on 127.0.0.1:5433 via Compose.
 
 ---
 

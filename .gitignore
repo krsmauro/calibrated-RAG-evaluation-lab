@@ -12,3 +12,6 @@ __pycache__/
 .pytest_cache/
 .hypothesis/
 dist/
+
+# Raw datasets are downloaded by scripts/fetch_cuad.py, never committed
+data/

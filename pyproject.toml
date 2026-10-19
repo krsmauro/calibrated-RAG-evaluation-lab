@@ -9,8 +9,14 @@ license-files = ["LICENSE"]
 # later heavy dependencies (torch, sentence-transformers, psycopg, pgvector) are certain to ship
 # wheels for. Raise it deliberately, in one commit, once those are installed and tested.
 requires-python = ">=3.12,<3.13"
-# No runtime dependencies yet: each one is added by the step whose code imports it.
-dependencies = []
+# Each dependency is added by the step whose code imports it (none ahead of need).
+# psycopg is the driver SQLAlchemy loads for Alembic; the service will use it directly later.
+dependencies = [
+    "alembic>=1.20.0",
+    "psycopg[binary]>=3.3.6",
+    "pydantic-settings>=2.16.0",
+    "sqlalchemy>=2.1.5",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14"]
@@ -20,10 +26,12 @@ build-backend = "uv_build"
 dev = [
     "pre-commit>=4.7.0",
     "pyright>=1.1.414",
+    "pytest>=9.1.1",
     "ruff>=0.17.1",
 ]
 
 [tool.ruff]
+line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.format]
@@ -39,9 +47,14 @@ select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "T20", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # pytest idiom: plain assert is the test mechanism.
 "tests/**" = ["S101"]
+# Command-line scripts print their report on purpose; src/ stays print-free.
+"scripts/**" = ["T20"]
 
 [tool.pyright]
 include = ["src", "tests"]
 # Strict on the code that produces numbers; tests only need to be consistent.
 strict = ["src"]
 pythonVersion = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

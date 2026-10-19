@@ -1,0 +1,25 @@
+name: ragcalibrate # compose project name: keeps containers and volumes apart from your other projects
+
+services:
+  db:
+    # Explicit tag, never `latest`: a silently newer pgvector or Postgres changes retrieval results.
+    # pg17 rather than pg18: the mature release; pgvector 0.8 supports both.
+    image: pgvector/pgvector:0.8.7-pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env}
+      POSTGRES_DB: ${POSTGRES_DB:?copy .env.example to .env}
+    ports:
+      # Loopback only, and 5433 by default so it does not collide with a Postgres you already run.
+      - "127.0.0.1:${RAGCALIBRATE_DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  pgdata:

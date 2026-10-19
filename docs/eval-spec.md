@@ -21,7 +21,7 @@ A query is one `(document, category)` pair for CUAD (templated question) or one 
 - **Primary relevance rule (R1): a chunk is relevant if it overlaps at least one gold span by at least one character.** Reason: it is the rule behind Hit@k as defined in Design §8.2, it is parameter-free, and it cannot make a long gold span unreachable.
 - Known weakness of R1: a chunk that touches a long span by one character counts as a full hit, and big chunks hit more often. That is why chunk comparisons use the token-budget metrics (§3.4) and not recall@k alone.
 - **Sensitivity rule (R2), always reported next to R1 for the strategy comparison: a chunk is relevant if its overlap is at least `min(0.5 × span length, 0.5 × chunk length)`.** The `min` is deliberate: a plain "50% of the gold span" rule makes spans longer than two chunks unreachable by any single chunk. The sensitivity report states whether the ranking of strategies under R2 matches R1. R1 stays primary regardless of the outcome, and the gate uses R1 only.
-- Whitespace-only overlaps are counted as overlaps. Step 1.7 measures how many R1 hits at the margin are whitespace-only; if that is not negligible, this is amended before Phase 2 ends.
+- Whitespace-only overlaps are counted as overlaps. Step 1.7 measured that no CUAD gold span has leading or trailing whitespace (0 of 13,823, finding F-008), so an overlap at a span's edge always includes a non-whitespace character. No amendment needed.
 
 ## 3. Retrieval metrics
 
@@ -150,7 +150,7 @@ Gate validation (subsampling study, A/A study, coverage test) follows Design §8
 
 - **Unit of splitting is the document.** A document's queries never straddle two splits.
 - **Test:** the dataset's official test split (Design §8.1 expects 102 CUAD contracts and 4,182 rows; step 1.7 confirms). Touched once per frozen configuration. Every touch is logged in `docs/results.md` with the config hash and run id. A new config hash is a new touch and is listed as such; reruns of the same hash (cache read-only) are not new touches.
-- **Dev:** every CUAD document in the official train split. Reason: nothing in this project is trained (fine-tuning is a non-goal), so no data needs to be held back for training. Tuning of chunk size, RRF parameters, rerank depth and prompts happens on dev only.
+- **Dev:** every CUAD document in the official train split (measured in step 1.7: 408 contracts, 16,728 pairs, 5,458 answerable; test is 102 contracts, 4,182 pairs, 1,244 answerable; finding F-008). The unit is the (contract, category) pair from `CUADv1.json`; `train_separate_questions.json` has a different unit (one row per answer span) and is not used. Reason: nothing in this project is trained (fine-tuning is a non-goal), so no data needs to be held back for training. Tuning of chunk size, RRF parameters, rerank depth and prompts happens on dev only.
 - **CI subset:** a fixed sample of dev documents, stratified by document length (terciles by characters). Its size is **provisional**: set from the coverage and power studies (steps 4.2 and 4.6), not from a runtime budget alone. The sampling seed and the document list are committed with the eval set.
 - **Judge development vs calibration (provisional):** documents used to write and revise the judge rubric and prompt are disjoint from documents whose answers go into the human-labeled calibration set. The judge prompt is frozen (version and hash) before any calibration label is made. The sizes are fixed in step 6.1.
 - QASPER follows the same rules with its own official splits; the mapping is written in Phase 9.
@@ -207,3 +207,4 @@ Still open, no answer needed yet:
 
 - 2026-10-19: draft written (Claude). No test-split number exists yet.
 - 2026-10-19: approved by the user. Generator primary metric changed from the design's faithfulness pass rate to the end-to-end correct rate with a faithfulness guard (§6.1). Still no test-split number.
+- 2026-10-19: step 1.7 measurements added to §2 and §7 as facts (F-008). No decision changed. Noted in F-008: 67.9% of CUAD pairs are unanswerable, so the always-abstain baseline for presence accuracy is about 68% and must be reported beside it.
