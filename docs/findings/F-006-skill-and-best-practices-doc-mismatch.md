@@ -17,3 +17,4 @@
 Step 0.4 fixes the pointers and marks unwritten files. Each phase writes the reference file it needs (1.11, 2.11, 4.9, 5.9), derived from what was built. Phase 5 lists the applicable best-practices constraints inline so an agent does not need the whole document.
 
 ## Resolution
+2026-10-19, step 0.4: by then all referenced files existed (point 1's missing-file claim was stale); the section citations were repointed to `docs/design/project-design.md`. Point 2 (best-practices doc scope) stands; Phase 5 handles it.

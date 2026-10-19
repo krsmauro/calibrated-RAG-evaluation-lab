@@ -1,7 +1,7 @@
 # Phase 1: Eval spec and repo skeleton (Design Week 1)
 
 **Goal:** write down every decision that would otherwise produce an indefensible number, and get a repo where `make up` works from a clean clone.
-**Entry:** Phase 0 done, or at least 0.2 (D5 package name) answered.
+**Entry:** Phase 0 done, or at least D5 (package name, answered) in the plan.
 **Exit criterion:** `make up` works from a clean clone; CI green on the empty app; `docs/eval-spec.md` written; first ADRs written.
 
 Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
@@ -13,18 +13,23 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Verify:** a finding (`docs/findings/`) lists, per tool, what was checked and what changed. Anything that changes the differentiator in Design §3 is flagged to the user.
 - **Refs:** Design §3, §8.4 (PPI).
 
-#### 1.2 [ ] Repo skeleton: uv, ruff, pyright, pre-commit
-- **Do:** `pyproject.toml` with the `src/rageval` layout (name per D5), a committed `uv.lock`, ruff lint and format, pyright strict on `src/`, pre-commit with ruff and a secret scanner (gitleaks). Add `import-linter` only when there are two packages to separate (step 2.7). Pin the Python version and record why. Empty packages for `corpora/ ingest/ service/ llm/ harness/ stats/ report/`, each with a one-line docstring and nothing else.
+#### 1.2 [x] Repo skeleton: uv, ruff, pyright, pre-commit
+- **Do:** `pyproject.toml` with the `src/ragcalibrate` layout (name per D5), a committed `uv.lock`, ruff lint and format, pyright strict on `src/`, pre-commit with ruff and a secret scanner (gitleaks). Add `import-linter` only when there are two packages to separate (step 2.7). Pin the Python version and record why. Empty packages for `corpora/ ingest/ service/ llm/ harness/ stats/ report/`, each with a one-line docstring and nothing else.
 - **Verify:** `uv sync && uv run ruff check . && uv run ruff format --check . && uv run pyright` all pass on a fresh clone.
 - **Refs:** Design §9 (Tooling), §13; skill Layer 2 (XC-CRITICAL-4: no dependency without an importer).
-
+- Claimed: Claude (session 6137b804), 2026-10-19
+- **Done:** 2026-10-19, Claude. `pyproject.toml` (uv_build backend, Python pinned to 3.12 with the reason in a comment, no runtime dependencies), committed `uv.lock`, ruff (E,F,I,B,UP,ASYNC,S,T20,RUF), pyright strict on `src/`, empty packages with one-line docstrings, test directories, `.pre-commit-config.yaml` and Python entries in `.gitignore`.
+  Evidence: in a scratch copy of the non-ignored files (git-initialised, 54 files): `uv sync --frozen`, `uv run ruff check .`, `uv run ruff format --check .`, `uv run pyright` (0 errors) and `uv run pre-commit run --all-files` (all 8 hooks passed, including gitleaks on staged files). Installed: uv 0.13.1, ruff 0.17.1, pyright 1.1.414, pre-commit 4.7.0.
+  Files: `pyproject.toml`, `uv.lock`, `.python-version`, `.pre-commit-config.yaml`, `.gitignore`, `src/ragcalibrate/**/__init__.py`, `src/ragcalibrate/py.typed`, `tests/{unit,property,integration}/.gitkeep`; also fixed one leftover `RAGEVAL_` env prefix in the skill.
+  Deviations: not a real `git clone` (nothing is committed yet), a copy of the non-ignored working tree instead; rerun from a real clone at step 1.12. Ruff here also formats Markdown code blocks, so `*.md` is excluded from `ruff format`. Pre-commit hooks run ruff and pyright through `uv run` so `uv.lock` is the only version pin. The gitleaks hook needs the binary on PATH (`brew install gitleaks`). `pre-commit install` was not run (it would write into your `.git/hooks`).
+  Not checked: pytest (no tests or dependency yet; arrives with step 1.6).
 #### 1.3 [ ] Docker Compose with Postgres and pgvector
 - **Do:** `docker-compose.yml` with a pgvector-enabled Postgres, image pinned to an explicit tag (not `latest`), a healthcheck, a named volume. Makefile targets: `up`, `down`, `test`, `lint`. `.env.example` lists every setting.
 - **Verify:** `make up` then `psql -c "select extversion from pg_extension where extname='vector'"` after step 1.4 returns a version. Record the pgvector version in the manifest notes.
 - **Refs:** Design §9, §6 (data model).
 
 #### 1.4 [ ] Settings module and Alembic baseline
-- **Do:** one `pydantic-settings` class in `rageval/config.py` (no other `os.environ` use). Alembic initialised; first migration creates the `vector` extension, `documents` and `chunks` per Design §6 data model (no `tsv` or HNSW index yet; those arrive in Phases 2 and 3 with the evidence behind them). No `create_all` anywhere.
+- **Do:** one `pydantic-settings` class in `ragcalibrate/config.py` (no other `os.environ` use). Alembic initialised; first migration creates the `vector` extension, `documents` and `chunks` per Design §6 data model (no `tsv` or HNSW index yet; those arrive in Phases 2 and 3 with the evidence behind them). No `create_all` anywhere.
 - **Verify:** `uv run alembic upgrade head` on an empty database succeeds, then `downgrade base` then `upgrade head` again. `grep -rn "os.environ\|os.getenv" src/` returns only `config.py`.
 - **Refs:** skill BE-CRITICAL-1; Design §9 (Database).
 
@@ -43,7 +48,7 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Verify:** one finding, `F-0NN-cuad-facts.md`, with the numbers, the command that produced them and the dataset checksum. Any number that differs from the Design is called out.
 - **Refs:** Design §5.3, §5.4, §8.1, §10.
 
-#### 1.8 [ ] Write `docs/eval-spec.md`
+#### 1.8 [x] Write `docs/eval-spec.md`
 - **Do:** one document, the single source of truth for what the numbers mean. It must settle:
   1. Primary task: within-document retrieval (Design §5.1).
   2. Relevance rule: the overlap threshold (any overlap or at least 50 percent of the gold span), plus the sensitivity analysis to run (Design §5.2).
@@ -55,6 +60,11 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
   8. The k and token budget values to report, chosen with headroom in mind (finding F-004).
 - **Verify:** every section of Design §5 and §8 either appears in the spec or is listed as "deferred to step X". The user has read and approved it (agents do not self-approve a spec).
 - **Refs:** Design §5, §8; findings F-001, F-004.
+- Claimed: Claude (session 6137b804), 2026-10-19
+- **Done:** 2026-10-19, Claude; approved by the user the same day. Wrote `docs/eval-spec.md` covering all eight items; Design §5 and §8 coverage is in its section 10, with deferrals tied to named steps.
+  Evidence: the user read the spec and approved it after the draft was posted; the coverage table lists every Design §5.x and §8.x section as settled or deferred to a step.
+  Files: `docs/eval-spec.md` (new, needs `git add`), findings F-001 and F-004 resolutions.
+  Deviations: generator primary metric is the end-to-end correct rate with a faithfulness guard, not faithfulness alone as in Design §8.5 (gameable by abstaining). Dev is all of train rather than a carve-out. Provisional items remain by design: tokenizer (4.9), minimum cluster count (4.2), CI subset size and MDE (4.6), δ final values (4.6, 8.x), calibration set sizes (6.1).
 
 #### 1.9 [ ] First ADRs
 - **Do:** write ADR 0001 (Postgres with pgvector), 0003 (separate SQLite run store), 0005 (gold labels live in the harness), 0009 (FTS is not BM25) at `docs/adr/`. Use `docs/adr/_template.md`. Short.

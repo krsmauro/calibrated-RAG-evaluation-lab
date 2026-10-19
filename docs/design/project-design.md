@@ -160,7 +160,7 @@ flowchart LR
   - `POST /answer {query, doc_id?, strategy, chunker_id}` returns the answer, citations (chunk IDs plus offsets), an `abstained` flag, and token usage.
   - `GET /healthz` and `GET /readyz`.
   - Strategy and chunker are chosen per request, so one deployment serves every arm of an experiment.
-- **Eval harness.** A CLI: `rageval run | compare | calibrate | report`. The runner is async, with bounded concurrency, retries and resumable runs. It reaches the system under test only through an adapter interface (HTTP by default), which is how another team would plug in their own RAG service.
+- **Eval harness.** A CLI: `ragcalibrate run | compare | calibrate | report`. The runner is async, with bounded concurrency, retries and resumable runs. It reaches the system under test only through an adapter interface (HTTP by default), which is how another team would plug in their own RAG service.
 - **LLM client.** One thin provider interface used by both the generator and the judge, with a content-addressed response cache, token and cost accounting, and Langfuse spans. No framework.
 - **Stats.** Bootstrap, κ and the gate decision rule, as pure functions with no I/O, so they are easy to test exhaustively.
 - **GitHub Action.** A composite action that runs the harness, compares against a baseline, posts or updates a single PR comment, and sets the exit code.
@@ -372,8 +372,8 @@ The nine weeks assume roughly 20 focused hours a week. At 10 hours a week, plan 
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | 1    | Read ARES, LegalBench-RAG and the Ragas docs. Write the eval spec (the Section 5 decisions, metric definitions, the gate rule). Repo skeleton: uv, ruff, pyright, pre-commit, CI, Docker Compose with Postgres and pgvector, Alembic | `docs/eval-spec.md`, first ADRs, CI green on an empty app                         | `make up` works from a clean clone                                                     |
 | 2    | CUAD loader with offsets, gold spans and splits; chunker C1; local embeddings; dense retrieval (S2); retrieval metrics with tests                                                                                                    | Baseline recall@5 and MRR on dev for S2                                           | Offset property tests and metric fixture tests pass; one command reproduces the number |
-| 3    | FTS (S1), RRF hybrid (S3), cross-encoder rerank (S4); chunker C2; SQLite run store; `rageval run`                                                                                                                                    | Stored runs for S1 to S4                                                          | The same config run twice gives identical retrieval results                            |
-| 4    | Paired cluster bootstrap; `rageval compare`; subsampling study for retrieval; retrieval-only GitHub Action                                                                                                                           | Strategy comparison table with CIs; first power curve; the Action running on a PR | Bootstrap coverage test passes; clustered false-alarm rate is close to nominal         |
+| 3    | FTS (S1), RRF hybrid (S3), cross-encoder rerank (S4); chunker C2; SQLite run store; `ragcalibrate run`                                                                                                                                    | Stored runs for S1 to S4                                                          | The same config run twice gives identical retrieval results                            |
+| 4    | Paired cluster bootstrap; `ragcalibrate compare`; subsampling study for retrieval; retrieval-only GitHub Action                                                                                                                           | Strategy comparison table with CIs; first power curve; the Action running on a PR | Bootstrap coverage test passes; clustered false-alarm rate is close to nominal         |
 | 5    | Cited answers with structured output and abstention; LLM client with cache and cost accounting; deterministic answer metrics; Langfuse tracing                                                                                       | Answer metrics on dev                                                             | Cost per run is reported; a warm-cache rerun costs about $0                            |
 | 6    | Judge prompts (binary, per criterion); perturbation set; 200 to 300 blind human labels against a written rubric                                                                                                                      | Labeled calibration set; judge v1                                                 | Labels were made blind; the rubric is in the repo                                      |
 | 7    | Calibration report: κ with CIs, confusion matrices, bias tests, one mitigation before and after; LLM A/A reruns                                                                                                                      | Judge-agreement report                                                            | Every number in the report regenerates from one command                                |
@@ -410,7 +410,7 @@ Use a short format (context, decision, alternatives, consequences) in `docs/adr/
 
 ```text
 calibrated-RAG-evaluation-lab/
-├── src/rageval/
+├── src/ragcalibrate/
 │   ├── corpora/      # CUAD and QASPER adapters: documents, queries, gold spans
 │   ├── ingest/       # versioned chunkers, embedding, bulk load into Postgres
 │   ├── service/      # FastAPI app: /retrieve, /answer, strategies, reranker
@@ -430,7 +430,7 @@ calibrated-RAG-evaluation-lab/
 └── uv.lock
 ```
 
-`rageval` is a placeholder; check whether the name is free on PyPI before publishing anything.
+`ragcalibrate` is the package name (chosen 2026-10-19, replacing the placeholder `rageval`; free on PyPI when chosen, re-check before publishing).
 
 ## 14. Results to publish
 
@@ -438,44 +438,20 @@ Every number in the README links to the command that regenerates it. A number th
 
 | Result                                                                                                   | Produced by                      | Value |
 | -------------------------------------------------------------------------------------------------------- | -------------------------------- | ----- |
-| recall@5 and MRR per strategy (S1 to S4), with 95% CIs, CUAD test                                        | `rageval run`, `rageval compare` | TBD   |
-| Character precision and recall at a token budget, per chunker                                            | `rageval run`                    | TBD   |
-| Presence accuracy, abstention precision and recall, citation precision                                   | `rageval run`                    | TBD   |
-| Judge κ against blind human labels, per criterion, with 95% CIs                                          | `rageval calibrate`              | TBD   |
-| Bias effects (position flip rate, verbosity shift, citation trust), plus one mitigation before and after | `rageval calibrate`              | TBD   |
+| recall@5 and MRR per strategy (S1 to S4), with 95% CIs, CUAD test                                        | `ragcalibrate run`, `ragcalibrate compare` | TBD   |
+| Character precision and recall at a token budget, per chunker                                            | `ragcalibrate run`                    | TBD   |
+| Presence accuracy, abstention precision and recall, citation precision                                   | `ragcalibrate run`                    | TBD   |
+| Judge κ against blind human labels, per criterion, with 95% CIs                                          | `ragcalibrate calibrate`              | TBD   |
+| Bias effects (position flip rate, verbosity shift, citation trust), plus one mitigation before and after | `ragcalibrate calibrate`              | TBD   |
 | Gate false-alarm rate: retrieval (subsampling) and LLM stages (A/A)                                      | gate validation study            | TBD   |
 | Minimum detectable recall@5 drop at 80% power on the CI subset                                           | gate validation study            | TBD   |
 | Cost per full run (cold and warm cache) and per CI run                                                   | run manifests                    | TBD   |
 | p95 latency: retrieval per strategy, end-to-end answer                                                   | load test                        | TBD   |
-| The headline table repeated on QASPER                                                                    | `rageval run --corpus qasper`    | TBD   |
+| The headline table repeated on QASPER                                                                    | `ragcalibrate run --corpus qasper`    | TBD   |
 
-## 15. Positioning (career notes, keep out of the public repo)
+## 15. Positioning
 
-**Motivation.** In the job-postings dataset this project was scoped from, evals appear in 65% of AI-engineer postings and RAG in 62%. Keep that statistic out of the README, since it refers to a private dataset.
-
-**The pitch, revised.** The original is one long sentence listing seven technologies. In conversation, lead with the problem and the numbers, and give the stack when asked:
-
-> "I built an open-source harness that tells a team whether a RAG change actually made things better. Its LLM judge is calibrated against blind human labels, at κ = **, and its CI gate catches a **-point recall drop **% of the time while failing no-op changes only **% of the time. On 510 legal contracts it showed that hybrid retrieval with reranking beats dense-only by ** points of recall@5, at a cost of ** ms of p95 latency."
-
-Stack line for the résumé: Python (FastAPI, Pydantic, asyncio), PostgreSQL (pgvector, full-text search), SQLite, Langfuse, GitHub Actions, Docker, testcontainers.
-
-Keep two kinds of claim apart. "Hybrid beats dense by X" is a finding the tool produced. "The gate catches a Δ regression with P% power at an F% false-alarm rate" is a property of the tool. The second is the stronger claim, because few other candidates can make it.
-
-**Résumé bullet templates.** Fill in measured numbers only.
-
-- Built an open-source RAG evaluation harness with span-level ground truth over 510 legal contracts; compared four retrieval strategies with paired bootstrap CIs and found hybrid retrieval with reranking improved recall@5 by ** points (95% CI ** to \_\_) over dense-only.
-- Calibrated an LLM judge against ** blind human labels (Cohen's κ = **); measured and mitigated position and verbosity bias, reducing the order-flip rate from **% to **%.
-- Shipped a reusable GitHub Action that gates PRs on document-clustered bootstrap CIs, validated at a **% false-alarm rate and **% power for **-point regressions, at $** per CI run.
-
-**Interview talking points**, each a trade-off you'll have measured:
-
-- Why the bootstrap is clustered by document, and what happens to the false-alarm rate when it isn't.
-- Why recall@k misleads when comparing chunk sizes.
-- Why κ can be low when raw agreement is high.
-- Why caching makes A/A tests meaningless unless you bypass it.
-- Why gold labels never touch the system under test.
-- Why a three-outcome gate beats pass/fail when the eval set is small.
-- What changes at 100 times the corpus size: approximate search with iterative scans, partitioning, batch embedding jobs, and queue-based workers for eval runs.
+Moved to `docs/private/career-notes.md` (gitignored) so the public tree carries no career material. Step 0.3 of the plan.
 
 ## 16. Risks
 
@@ -495,4 +471,4 @@ Keep two kinds of claim apart. "Hybrid beats dense by X" is a finding the tool p
 2. **Hours per week.** The schedule assumes about 20. Adjust it, or apply the cut list.
 3. **Public from day one, or at v0.1?** Going public early shows process (issues, PRs, ADRs written as decisions are made); going public later avoids a half-finished first impression. I lean toward public early with a clear "work in progress" status, since the demo PRs have to live in the repo anyway.
 4. **Second corpus.** QASPER is the recommendation. Confirm it, or choose another and check its license.
-5. **Package name.** Replace the `rageval` placeholder after checking PyPI.
+5. **Package name.** Decided: `ragcalibrate` (2026-10-19).

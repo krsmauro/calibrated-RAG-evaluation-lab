@@ -1,6 +1,6 @@
 # Eval Integrity Rules
 
-Read this first when touching `harness/`, `corpora/`, `evalsets/`, `configs/`, `report/` or any metric. A bug here doesn't crash; it produces a plausible wrong number. Source of truth: `docs/project-plan.md` §5 and §8 (if this file and the plan disagree, ask).
+Read this first when touching `harness/`, `corpora/`, `evalsets/`, `configs/`, `report/` or any metric. A bug here doesn't crash; it produces a plausible wrong number. Source of truth: `docs/design/project-design.md` §5 and §8 (if this file and the plan disagree, ask).
 
 ## EVAL-CRITICAL-1 — Gold labels never reach the system under test
 
@@ -24,7 +24,7 @@ Read this first when touching `harness/`, `corpora/`, `evalsets/`, `configs/`, `
 
 - Retrieval metrics are computed on **answerable** queries only (recall is undefined with no gold span). Return a defined "not applicable" (not `0.0`, not `nan` that poisons a mean) and exclude it explicitly; report `n`.
 - Answer quality includes abstention. Report abstention **precision and recall separately** so "always abstain" and "never abstain" both score badly on one of them.
-- Retrieval is **within-document** (`doc_id` filter) for CUAD/QASPER; don't evaluate corpus-wide unless the corpus supports it (plan §5.1).
+- Retrieval is **within-document** (`doc_id` filter) for CUAD/QASPER; don't evaluate corpus-wide unless the corpus supports it (Design §5.1).
 
 ## EVAL-CRITICAL-5 — Tune on dev, report on test, once
 

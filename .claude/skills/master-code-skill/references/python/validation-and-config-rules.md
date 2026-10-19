@@ -23,7 +23,7 @@ Between functions you own, **type hints + pyright are the proof**. Wrapping ever
 
 ## VAL-CRITICAL-3 — One definition per wire shape; derive, don't mirror
 
-The `/retrieve` and `/answer` request/response models live in one module (e.g. `rageval/models.py`) imported by both the service and the harness HTTP adapter. Derive related shapes from it rather than hand-writing a parallel class. Two copies = silent mis-scoring when one drifts.
+The `/retrieve` and `/answer` request/response models live in one module (e.g. `ragcalibrate/models.py`) imported by both the service and the harness HTTP adapter. Derive related shapes from it rather than hand-writing a parallel class. Two copies = silent mis-scoring when one drifts.
 
 ## VAL-HIGH-1 — Be strict where silence is dangerous
 
@@ -52,7 +52,7 @@ Validate shape (Pydantic), then **semantics**: every cited `chunk_id` must be on
 
 ```python
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="RAGEVAL_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="RAGCALIBRATE_", env_file=".env", extra="ignore")
     database_url: PostgresDsn
     llm_api_key: SecretStr | None = None
     llm_timeout_s: float = 60.0

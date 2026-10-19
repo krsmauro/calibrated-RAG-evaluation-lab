@@ -1,6 +1,6 @@
 ---
 name: master-code-skill
-description: Use this skill for ANY coding task in the calibrated-RAG-evaluation-lab repo (Python package `rageval`) — writing, adapting, or reviewing code in the FastAPI RAG service, the eval harness CLI, ingestion/chunkers, the LLM client, the stats module, Alembic migrations, tests, or CI. Combines four layers: (1) Karpathy's anti-overcomplication mindset (think before coding, simplicity first, surgical changes, goal-driven execution), (2) cross-cutting rules for validation (Pydantic only at trust boundaries), dependencies (uv, lockfile, nothing unused) and verification with the real toolchain, (3) a Python backend playbook (layering, async, error handling, security, observability, Postgres/SQLite, testing), and (4) an eval-integrity lane covering what makes this project credible: span-level gold labels that never leak to the system under test, paired document-clustered bootstrap, judge calibration, LLM cache and determinism. Trigger on requests like "add an endpoint", "add a metric", "write a chunker", "change the retriever", "add a judge prompt", "write a migration", "review this PR", "add a test", "add a dependency", "compare two runs", "why is the gate flaky", or any change touching .py, .sql, pyproject.toml, docker-compose.yml, or CI files in this repo. Trigger even for small or one-line edits; the Karpathy mindset and surgical-change rules apply universally.
+description: Use this skill for ANY coding task in the calibrated-RAG-evaluation-lab repo (Python package `ragcalibrate`) — writing, adapting, or reviewing code in the FastAPI RAG service, the eval harness CLI, ingestion/chunkers, the LLM client, the stats module, Alembic migrations, tests, or CI. Combines four layers: (1) Karpathy's anti-overcomplication mindset (think before coding, simplicity first, surgical changes, goal-driven execution), (2) cross-cutting rules for validation (Pydantic only at trust boundaries), dependencies (uv, lockfile, nothing unused) and verification with the real toolchain, (3) a Python backend playbook (layering, async, error handling, security, observability, Postgres/SQLite, testing), and (4) an eval-integrity lane covering what makes this project credible: span-level gold labels that never leak to the system under test, paired document-clustered bootstrap, judge calibration, LLM cache and determinism. Trigger on requests like "add an endpoint", "add a metric", "write a chunker", "change the retriever", "add a judge prompt", "write a migration", "review this PR", "add a test", "add a dependency", "compare two runs", "why is the gate flaky", or any change touching .py, .sql, pyproject.toml, docker-compose.yml, or CI files in this repo. Trigger even for small or one-line edits; the Karpathy mindset and surgical-change rules apply universally.
 ---
 
 # Master Code Skill — Calibrated RAG Evaluation Lab
@@ -15,15 +15,15 @@ A single entry point for all coding work in this repo. Layers:
 
 Keep this file lean. Detailed rules live in `references/`.
 
-> **Provenance**: adapted from the `master-code-skill` in `pivotia-app` (TypeScript monorepo) and `Legalware-app` (Firebase + React). Karpathy layer kept as is; frontend, mobile and i18n lanes dropped (no UI here); backend rules rewritten for Python; eval-integrity lane added. **The repo is pre-code**: the layout below comes from `docs/project-plan.md` §13. If the real tree differs, trust the tree and update this file.
+> **Provenance**: adapted from the `master-code-skill` in `pivotia-app` (TypeScript monorepo) and `Legalware-app` (Firebase + React). Karpathy layer kept as is; frontend, mobile and i18n lanes dropped (no UI here); backend rules rewritten for Python; eval-integrity lane added. **The repo is pre-code**: the layout below comes from `docs/design/project-design.md` §13. If the real tree differs, trust the tree and update this file.
 
 ---
 
-## Repo shape (planned, per `docs/project-plan.md`)
+## Repo shape (planned, per `docs/design/project-design.md`)
 
 ```
 calibrated-RAG-evaluation-lab/
-├── src/rageval/
+├── src/ragcalibrate/
 │   ├── corpora/    CUAD / QASPER adapters → documents, queries, gold spans
 │   ├── ingest/     versioned chunkers, embedding, bulk load into Postgres
 │   ├── service/    FastAPI app (system under test): /retrieve /answer /healthz /readyz
@@ -39,9 +39,9 @@ calibrated-RAG-evaluation-lab/
 └── pyproject.toml  uv.lock  docker-compose.yml  Makefile
 ```
 
-**Two databases on purpose** (plan §5.8): Postgres = corpus index (part of the system under test); SQLite = run results (the measuring instrument). The LLM cache is a third, separate SQLite file. Don't merge them.
+**Two databases on purpose** (Design §5.8): Postgres = corpus index (part of the system under test); SQLite = run results (the measuring instrument). The LLM cache is a third, separate SQLite file. Don't merge them.
 
-**Dependency direction is one-way**: `stats` and `report` depend on nothing in `rageval` that does I/O. `harness` talks to the SUT only over HTTP. `service` never imports `harness` or reads `evalsets/`. See `references/python/architecture-rules.md`.
+**Dependency direction is one-way**: `stats` and `report` depend on nothing in `ragcalibrate` that does I/O. `harness` talks to the SUT only over HTTP. `service` never imports `harness` or reads `evalsets/`. See `references/python/architecture-rules.md`.
 
 ---
 
@@ -106,9 +106,9 @@ Full details: [references/python/tooling-rules.md](references/python/tooling-rul
 
 | If the file lives in… | Lane | Primary references |
 |---|---|---|
-| `src/rageval/service/`, `ingest/`, `corpora/`, `migrations/` | **Backend** | `references/python/*.md` |
-| `src/rageval/llm/` | **Backend + Eval** | `python/reliability-rules.md`, `eval/llm-rules.md` |
-| `src/rageval/harness/`, `stats/`, `report/`, `evalsets/`, `configs/`, `action/` | **Eval integrity** | `references/eval/*.md` (start with `eval-integrity-rules.md`) |
+| `src/ragcalibrate/service/`, `ingest/`, `corpora/`, `migrations/` | **Backend** | `references/python/*.md` |
+| `src/ragcalibrate/llm/` | **Backend + Eval** | `python/reliability-rules.md`, `eval/llm-rules.md` |
+| `src/ragcalibrate/harness/`, `stats/`, `report/`, `evalsets/`, `configs/`, `action/` | **Eval integrity** | `references/eval/*.md` (start with `eval-integrity-rules.md`) |
 | `tests/` | **Testing** | `python/testing-rules.md` (+ `eval/stats-rules.md` for stats tests) |
 | `pyproject.toml`, `docker-compose.yml`, `Makefile`, `.github/`, `action/` | **Tooling** | `python/tooling-rules.md` |
 
@@ -153,7 +153,7 @@ Full details in `references/python/`.
 # NEVER — unvalidated, scattered, silently None
 port = os.environ.get("PORT")
 
-# ALWAYS — rageval/config.py, one Settings class, validated at startup
+# ALWAYS — ragcalibrate/config.py, one Settings class, validated at startup
 settings = Settings()   # fails at boot with a readable error
 ```
 `grep -rn "os.environ\|os.getenv" src/` outside `config.py` should return nothing. Experiment parameters are *not* env: they live in versioned YAML whose hash identifies the run.
@@ -244,7 +244,7 @@ Run before finishing any task. `[!]` blocking, `[~]` must justify, `[ ]` informa
 | [references/python/validation-and-config-rules.md](references/python/validation-and-config-rules.md) | Adding a model, touching an API/LLM/file boundary, adding a setting |
 | [references/python/tooling-rules.md](references/python/tooling-rules.md) | Adding/removing a dependency, editing pyproject/CI/Docker/Makefile, before claiming a change works |
 
-### Backend (`src/rageval/service`, `ingest`, `corpora`, `llm`, `migrations`)
+### Backend (`src/ragcalibrate/service`, `ingest`, `corpora`, `llm`, `migrations`)
 | File | Priority focus | Read when |
 |---|---|---|
 | [architecture-rules.md](references/python/architecture-rules.md) | Layering, module boundaries, DI, file size | Adding routes/modules, refactoring |
@@ -262,4 +262,4 @@ Run before finishing any task. `[!]` blocking, `[~]` must justify, `[ ]` informa
 | [stats-rules.md](references/eval/stats-rules.md) | Clustered bootstrap, κ, gate rule, power/false-alarm studies | Anything in `stats/`, gate or compare code |
 | [llm-rules.md](references/eval/llm-rules.md) | Cache, determinism, judge prompts, structured output, cost | `llm/`, judge, generator, prompts |
 
-> **Source attributions**: Karpathy mindset adapted from [Andrej Karpathy's observations on LLM coding pitfalls](https://x.com/karpathy/status/2015883857489522876). Layering/validation/dependency philosophy carried over from the sibling `pivotia-app` skill. Eval and LLM rules grounded in `docs/project-plan.md` and `docs/llm-production-best-practices.md`. Python rules follow common FastAPI/asyncio/OWASP guidance; verify version-specific behavior against current docs before relying on it.
+> **Source attributions**: Karpathy mindset adapted from [Andrej Karpathy's observations on LLM coding pitfalls](https://x.com/karpathy/status/2015883857489522876). Layering/validation/dependency philosophy carried over from the sibling `pivotia-app` skill. Eval and LLM rules grounded in `docs/design/project-design.md` and `docs/llm-production-best-practices.md`. Python rules follow common FastAPI/asyncio/OWASP guidance; verify version-specific behavior against current docs before relying on it.

@@ -1,6 +1,6 @@
 # Cross-cutting — Tooling & Dependency Rules
 
-uv, ruff, pyright, pre-commit, Docker Compose, GitHub Actions. Planned in `docs/project-plan.md` §9–§10; adjust if the repo diverges.
+uv, ruff, pyright, pre-commit, Docker Compose, GitHub Actions. Planned in `docs/design/project-design.md` §9–§10; adjust if the repo diverges.
 
 ## DEP-CRITICAL-1 — Don't add a dependency until something imports it
 
@@ -54,4 +54,4 @@ A deliberate decision that looks like a mistake will be reverted. Write the *why
 
 ## DEP-MEDIUM-2 — Name hygiene
 
-`rageval` is a placeholder name (plan §13). Don't hard-code it in places that would be painful to rename (use package-relative imports where reasonable; keep the name in one `pyproject` field and the `src/` directory). Check PyPI availability before publishing.
+`ragcalibrate` is the package name (decision D5, 2026-10-19; free on PyPI, npm and GitHub when chosen). Still keep it in one `pyproject` field and the `src/` directory, and use package-relative imports where reasonable, so a later rename stays cheap.

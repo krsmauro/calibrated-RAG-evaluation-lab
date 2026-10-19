@@ -38,7 +38,7 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Verify:** changing one config value changes the config hash; a dirty tree sets the flag.
 - **Refs:** Design §8.6.
 
-#### 3.7 [ ] `rageval run` (full)
+#### 3.7 [ ] `ragcalibrate run` (full)
 - **Do:** experiment YAML (versioned; hash is the experiment identity), async runner with bounded concurrency, resumable (skips `(run_id, query_id)` already stored), one retry layer only with backoff and jitter. `--max-cost` flag exists but is a no-op until Phase 5.
 - **Verify:** kill the run midway, resume, final store equals an uninterrupted run. Config validation errors are readable.
 - **Refs:** Design §8.6, §9; `docs/llm-production-best-practices.md` (Retries and timeouts).

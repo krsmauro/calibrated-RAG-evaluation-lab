@@ -13,7 +13,7 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Verify:** known-answer tests with hand-computed κ (including a high-agreement, low-κ imbalanced example that demonstrates the kappa paradox). Empty and single-class inputs have defined behaviour.
 - **Refs:** Design §8.4.
 
-#### 7.2 [ ] `rageval calibrate`
+#### 7.2 [ ] `ragcalibrate calibrate`
 - **Do:** per criterion and per label source (human, perturbation, derived): κ with 95 percent CI, raw agreement, confusion matrix, class prevalence, fail-class precision and recall, and the judge's repeat-to-repeat consistency from 6.7. The "judge says pass, gold says fail" cell is highlighted. The report states the label source next to every κ and says plainly that derived-label κ is partly circular. Include the user's intra-rater κ.
 - **Verify:** report generated from stored data with one command; n is shown with every number.
 - **Refs:** Design §5.5, §8.4.

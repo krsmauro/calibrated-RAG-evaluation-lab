@@ -1,0 +1,47 @@
+[project]
+name = "ragcalibrate"
+version = "0.0.0"
+description = "Open-source harness that measures whether a RAG change helped, with a judge calibrated against blind human labels and a CI gate."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+# 3.12, not newer: it has asyncio.TaskGroup and asyncio.timeout, and it is the version that the
+# later heavy dependencies (torch, sentence-transformers, psycopg, pgvector) are certain to ship
+# wheels for. Raise it deliberately, in one commit, once those are installed and tested.
+requires-python = ">=3.12,<3.13"
+# No runtime dependencies yet: each one is added by the step whose code imports it.
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pyright>=1.1.414",
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+src = ["src", "tests"]
+
+[tool.ruff.format]
+# This ruff also formats Markdown code blocks; the snippets in the docs and the skill are
+# illustrative, not code to be checked, and reflowing them would rewrite the documentation.
+exclude = ["*.md"]
+
+[tool.ruff.lint]
+# E,F: pycodestyle and pyflakes. I: import order. B: bugbear. UP: modern syntax. ASYNC: blocking
+# calls in async code. S: bandit-style security checks. T20: no print (use logging). RUF: ruff-specific.
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "T20", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest idiom: plain assert is the test mechanism.
+"tests/**" = ["S101"]
+
+[tool.pyright]
+include = ["src", "tests"]
+# Strict on the code that produces numbers; tests only need to be consistent.
+strict = ["src"]
+pythonVersion = "3.12"

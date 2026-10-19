@@ -1,6 +1,6 @@
 # Eval — Statistics Rules
 
-For `src/rageval/stats/` and anything computing a CI, κ, or gate decision. Source of truth: `docs/project-plan.md` §8.4–8.5. `stats/` is **pure functions: no I/O, no globals, no wall clock, seeded RNG**.
+For `src/ragcalibrate/stats/` and anything computing a CI, κ, or gate decision. Source of truth: `docs/design/project-design.md` §8.4–8.5. `stats/` is **pure functions: no I/O, no globals, no wall clock, seeded RNG**.
 
 ## STAT-CRITICAL-1 — The gate uses a paired, document-clustered bootstrap
 

@@ -1,6 +1,6 @@
 # Backend — Architecture Rules
 
-Layering, module boundaries, DI and file structure for `src/rageval/`.
+Layering, module boundaries, DI and file structure for `src/ragcalibrate/`.
 
 ## File Organization
 
@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
     await app.state.pool.close()
 ```
 
-No work at import time (no network, no DB, no model load). `import rageval.service` must be cheap and side-effect free.
+No work at import time (no network, no DB, no model load). `import ragcalibrate.service` must be cheap and side-effect free.
 
 ## ARCH-HIGH-2 — Pure core, thin shell
 
@@ -87,6 +87,6 @@ Chunkers, retrieval strategies, judge prompts and eval sets each have a stable I
 
 - Package/module/function: `snake_case`; classes: `PascalCase`; constants: `UPPER_SNAKE`.
 - No `utils.py` / `helpers.py` dumping grounds; name the module for what it does (`offsets.py`, `rrf.py`).
-- Absolute imports from `rageval.*`; no wildcard imports; no circular imports (a cycle means a boundary is wrong).
+- Absolute imports from `ragcalibrate.*`; no wildcard imports; no circular imports (a cycle means a boundary is wrong).
 - Prefer `dataclass(frozen=True, slots=True)` for internal value objects, Pydantic for boundaries (see `validation-and-config-rules.md`).
 - `pathlib.Path`, not string paths; `datetime` always timezone-aware UTC.

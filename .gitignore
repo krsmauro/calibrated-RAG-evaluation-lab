@@ -1,0 +1,14 @@
+# Private career notes (plan step 0.3)
+docs/private/
+
+# Secrets (plan step 0.5)
+.env
+
+# Python / tooling
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+dist/

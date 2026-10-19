@@ -50,7 +50,7 @@ The system under test is a small but real hybrid-retrieval RAG service (FastAPI,
 Planned code layout (nothing exists yet):
 
 ```text
-src/rageval/
+src/ragcalibrate/
 ├── corpora/   CUAD and QASPER adapters: documents, queries, gold spans
 ├── ingest/    versioned chunkers, embedding, bulk load into Postgres
 ├── service/   FastAPI app, the system under test: /retrieve, /answer
@@ -239,7 +239,7 @@ Every run writes to a **SQLite run store**: `runs`, `retrievals`, `query_metrics
 
 Every run records a **manifest**: git SHA and dirty flag, config hash, eval-set hash, chunker id, model snapshots, prompt hashes, `uv.lock` hash, RNG seeds, hardware for latency numbers. The rule: **every number in a report must be regenerable from one command**.
 
-`rageval compare` then takes a candidate run and a baseline run on the same queries and computes the **paired, document-clustered bootstrap confidence interval** of the difference in the primary metric (explained in [section 5](#5-the-statistics-you-need-to-be-able-to-explain)). The **gate** turns that interval into one of three outcomes: Pass, Fail, Inconclusive.
+`ragcalibrate compare` then takes a candidate run and a baseline run on the same queries and computes the **paired, document-clustered bootstrap confidence interval** of the difference in the primary metric (explained in [section 5](#5-the-statistics-you-need-to-be-able-to-explain)). The **gate** turns that interval into one of three outcomes: Pass, Fail, Inconclusive.
 
 **Validating the gate itself** (this is what makes the project unusual):
 
@@ -402,7 +402,7 @@ make up            # start Postgres + pgvector (and the service)
 make data          # download and checksum CUAD
 make ingest        # chunk, embed and load
 make eval          # run an experiment
-rageval run | compare | calibrate | report
+ragcalibrate run | compare | calibrate | report
 ```
 
 **Stack:** Python, FastAPI, Pydantic v2, asyncio, PostgreSQL (pgvector, full-text search), SQLite, Alembic, uv, ruff, pyright, pytest with Hypothesis and testcontainers, Docker Compose, GitHub Actions, optional Langfuse.

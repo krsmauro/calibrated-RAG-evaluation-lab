@@ -18,6 +18,6 @@ Design §1 says the harness "can evaluate any RAG service that implements the sa
 Absence of these items from `docs/phases/`. Step 2.7 defines the wire models and a contract test, which is the natural base for items 1 and 2.
 
 ## Consequence
-Not a blocker for v0.1 if the README claim stays modest (README section 7 does this). If portability is meant to be a selling point, add steps in Phase 8 or 9: publish the contract as OpenAPI plus prose, add a `rageval check-contract <url>` conformance command, define and document the eval-set format (it is already versioned JSONL, so this is mostly writing), and decide whether to support the text-matching fallback. This is a scope decision for the user (D-style), not an agent's call.
+Not a blocker for v0.1 if the README claim stays modest (README section 7 does this). If portability is meant to be a selling point, add steps in Phase 8 or 9: publish the contract as OpenAPI plus prose, add a `ragcalibrate check-contract <url>` conformance command, define and document the eval-set format (it is already versioned JSONL, so this is mostly writing), and decide whether to support the text-matching fallback. This is a scope decision for the user (D-style), not an agent's call.
 
 ## Resolution

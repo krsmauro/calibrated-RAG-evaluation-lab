@@ -53,7 +53,7 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Verify:** write the hand-computed fixtures first. Cover: no gold spans (undefined, excluded, not zero), duplicate chunks, overlapping gold spans, a gold span split across two chunks, ties.
 - **Refs:** Design §8.2; skill EVAL-CRITICAL-2.
 
-#### 2.10 [ ] Minimal `rageval run` for S2 and the baseline number
+#### 2.10 [ ] Minimal `ragcalibrate run` for S2 and the baseline number
 - **Do:** harness HTTP adapter plus a minimal run command: dev queries, answerable only, S2, C1. Writes a JSON result (the SQLite run store replaces this in Phase 3). Report recall@k for several k, not only 5 (see F-004), plus MRR.
 - **Verify:** one command reproduces the numbers twice. Record the values in `docs/results.md` as provisional (dev, not final).
 - **Refs:** Design §8.2; finding F-004.

@@ -1,6 +1,6 @@
 # Eval — LLM Rules
 
-For `src/rageval/llm/`, the generator, the judge and anything that builds prompts. Sources: `docs/project-plan.md` §5.6–5.7, §8.3, §8.6 and `docs/llm-production-best-practices.md`.
+For `src/ragcalibrate/llm/`, the generator, the judge and anything that builds prompts. Sources: `docs/design/project-design.md` §5.6–5.7, §8.3, §8.6 and `docs/llm-production-best-practices.md`.
 
 ## LLM-CRITICAL-1 — One thin provider interface, no framework
 
@@ -20,7 +20,7 @@ Use the provider's structured-output / schema-constrained mode where available, 
 
 Key = hash of: provider, **model snapshot** (dated ID, not an alias), parameters (temperature, max tokens, seed if supported), prompt template hash, and the fully rendered input. Missing any of these produces stale hits that look like stable results. The cache is a **separate SQLite file** (`llm_cache`), content-addressed, with token counts stored so a cache hit can still report the cost of the original call.
 
-Modes (plan §8.6):
+Modes (Design §8.6):
 
 | Mode | Use |
 |---|---|

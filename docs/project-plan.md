@@ -20,8 +20,8 @@ Status values: `todo`, `in progress`, `blocked`, `done`. Update the row when a s
 
 | Phase | Design week | Status | Next step | File |
 | --- | --- | --- | --- | --- |
-| 0 Pre-flight | none | todo | 0.1 (user commits docs), 0.2 (user answers D1 to D5) | [phase-0](phases/phase-0-preflight.md) |
-| 1 Eval spec and skeleton | 1 | todo | 1.1 | [phase-1](phases/phase-1-spec-and-skeleton.md) |
+| 0 Pre-flight | none | in progress | 0.3 and 0.4 done; 0.6 done; D1 to D5 answered (package `ragcalibrate`); 0.5 deferred to Phase 5; 0.1 looks done. Phase 1 can start | [phase-0](phases/phase-0-preflight.md) |
+| 1 Eval spec and skeleton | 1 | in progress | 1.2 and 1.8 done; next 1.3 (Compose), 1.4 (settings, Alembic), 1.7, 1.1 | [phase-1](phases/phase-1-spec-and-skeleton.md) |
 | 2 CUAD, C1, dense retrieval, metrics | 2 | todo | 2.1 | [phase-2](phases/phase-2-cuad-ingest-and-dense-retrieval.md) |
 | 3 Strategies, C2, run store | 3 | todo | 3.1 | [phase-3](phases/phase-3-strategies-and-run-store.md) |
 | 4 Stats and retrieval gate | 4 | todo | 4.1 | [phase-4](phases/phase-4-stats-and-retrieval-gate.md) |
@@ -70,11 +70,11 @@ Agents must not decide these. When answered, fill the row and date it. Source: D
 
 | ID | Question | Blocks | Answer | Date |
 | --- | --- | --- | --- | --- |
-| D1 | LLM provider(s) for generator and judge, and the total budget. Two model families are needed for the self-preference test and are advisable for judge vs generator in any case. | Phase 5; 0.5 | _pending_ | |
-| D2 | Hours per week available (the schedule assumes about 20; at 10, plan 14 to 16 weeks or apply the cut list now). | Schedule | _pending_ | |
-| D3 | Public from day one or at v0.1? (Design leans toward public early. If yes, do 0.3 immediately and note that `docs/` is visible.) | 0.3, 9.8 | _pending_ | |
-| D4 | Second corpus: QASPER (recommended) or another. | Phase 9 | _pending_ (default QASPER) | |
-| D5 | Package name; `rageval` is a placeholder. | Phase 1 | _pending_ | |
+| D1 | LLM provider(s) for generator and judge, and the total budget. Two model families are needed for the self-preference test and are advisable for judge vs generator in any case. | Phase 5; 0.5 | Deferred until Phase 5: the user will choose providers, keys and budget when we get there. | 2026-10-19 |
+| D2 | Hours per week available (the schedule assumes about 20; at 10, plan 14 to 16 weeks or apply the cut list now). | Schedule | Not time-bound. Cut list not applied; the design weeks give order, not deadlines. | 2026-10-19 |
+| D3 | Public from day one or at v0.1? (Design leans toward public early. If yes, do 0.3 immediately and note that `docs/` is visible.) | 0.3, 9.8 | Already public (origin/main pushed). `docs/` is visible, including history before step 0.3. | 2026-10-19 |
+| D4 | Second corpus: QASPER (recommended) or another. | Phase 9 | QASPER | 2026-10-19 |
+| D5 | Package name (was the placeholder `rageval`). | Phase 1 | `ragcalibrate`. Rejected: `raglab` (taken on PyPI, clashes with RAGLAB) and `rageval` (crowded GitHub names). Free on PyPI, npm and GitHub on 2026-10-19. | 2026-10-19 |
 
 ## Findings index
 
@@ -82,7 +82,7 @@ Open one only if **Affects** lists your step. Newest last.
 
 | ID | One line | Affects | Status | Evidence |
 | --- | --- | --- | --- | --- |
-| [F-001](findings/F-001-judge-criteria-inconsistent.md) | Design lists three judge criteria in §5.6 but two in §8.3 | 1.8, 6.x, 7.2 | open | read |
+| [F-001](findings/F-001-judge-criteria-inconsistent.md) | Design lists three judge criteria in §5.6 but two in §8.3 | 1.8, 6.x, 7.2 | resolved (eval-spec §5) | read |
 | [F-002](findings/F-002-fts-query-semantics.md) | Long templated questions under `websearch_to_tsquery` (AND) may match almost nothing | 3.1, 3.9 | open | hypothesis |
 | [F-003](findings/F-003-few-clusters-bootstrap-coverage.md) | Cluster bootstrap on a small CI subset may under-cover | 4.2, 4.5, 4.6 | open | hypothesis |
 | [F-004](findings/F-004-ceiling-effect-per-document-retrieval.md) | Per-document retrieval may saturate recall@5, leaving no power | 1.8, 2.10, 4.6, 8.5 | open | hypothesis |
@@ -130,3 +130,6 @@ Write each ADR when the decision is made (Design §12). Statuses: `planned`, `ac
 Append one line per structural change to the plan. Newest last.
 
 - 2026-10-19: Converted this file from the single design document into an index. The original text is preserved byte-for-byte at `docs/design/project-design.md`; section numbers are unchanged, so "Design §N" references remain valid. Added phases 0 to 9, findings F-001 to F-006, ADR index and results ledger. Added Phase 0 (not in the original schedule) for user-owned blockers.
+- 2026-10-19: Step 0.3 moved Design §15 to `docs/private/career-notes.md` (gitignored); the design file is no longer byte-for-byte the original at that section. Step 0.4 repointed the skill's citations to the design file.
+- 2026-10-19: Package renamed from the placeholder `rageval` to `ragcalibrate` in all docs and the skill (D5).
+- 2026-10-19: Step 1.8 done. `docs/eval-spec.md` approved. It deviates from Design §8.5 on the generator primary metric (end-to-end correct rate, faithfulness as guard) and uses all of train as dev (§8.1).

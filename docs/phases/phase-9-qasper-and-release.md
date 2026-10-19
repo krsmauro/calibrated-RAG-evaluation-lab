@@ -19,7 +19,7 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Refs:** Design §10, §11 (cut list item 4).
 
 #### 9.3 [ ] Run the headline experiments on QASPER
-- **Do:** same strategies, same metrics, same gate machinery, via `rageval run --corpus qasper`. Reuse the harness unchanged; if it needs changes, that is a finding about the corpus interface.
+- **Do:** same strategies, same metrics, same gate machinery, via `ragcalibrate run --corpus qasper`. Reuse the harness unchanged; if it needs changes, that is a finding about the corpus interface.
 - **Verify:** results in `docs/results.md` with run IDs.
 - **Refs:** Design §14.
 

@@ -23,7 +23,7 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Verify:** property tests on every boundary (`lo == -δ`, `hi == 0`); exhaustive table test of the three outcomes.
 - **Refs:** Design §8.5.
 
-#### 4.4 [ ] `rageval compare` and the first report
+#### 4.4 [ ] `ragcalibrate compare` and the first report
 - **Do:** compare two stored runs, output a Markdown table (metric, baseline, candidate, delta, CI, outcome, n queries, n documents) and an HTML report. Secondary metrics are shown but never gate.
 - **Verify:** the strategy comparison table on dev for S1 to S4 regenerates from one command. Every number shows its n.
 - **Refs:** Design §8.5, §14.

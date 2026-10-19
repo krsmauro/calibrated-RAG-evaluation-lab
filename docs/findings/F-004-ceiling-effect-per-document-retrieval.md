@@ -16,3 +16,4 @@ Not checked. Step 2.10 reports recall at several k from the first baseline run. 
 If confirmed, choose the primary gating metric and k with headroom (for example recall@1 or @3, MRR, or character-level precision/recall at a small token budget) in `eval-spec.md`, before the power study, and say why. Do this by looking at dev numbers for headroom only, never by choosing the metric on which a favored strategy wins.
 
 ## Resolution
+Partly addressed in `docs/eval-spec.md` §6.1 and §8 (draft, 2026-10-19): a pre-registered fallback order for the primary retrieval metric, checked on dev only, plus a note that a ceiling mainly hurts strategy comparison and improvement detection, and probably gating less than first written (hypothesis, to be measured in 4.6). Still open until dev numbers exist (step 2.10).
