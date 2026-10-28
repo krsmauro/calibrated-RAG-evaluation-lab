@@ -22,7 +22,7 @@ Status values: `todo`, `in progress`, `blocked`, `done`. Update the row when a s
 | --- | --- | --- | --- | --- |
 | 0 Pre-flight | none | done (exit criterion met) | 0.3, 0.4, 0.6 done; D1 to D5 answered; 0.5 (API key and spend limit, owner: user) deferred to Phase 5 with D1 | [phase-0](phases/phase-0-preflight.md) |
 | 1 Eval spec and skeleton | 1 | done (exit criterion met 2026-10-19; CI green, clean-clone check passed) | F-009 wording decision for Design §3 and the README is still pending with the user | [phase-1](phases/phase-1-spec-and-skeleton.md) |
-| 2 CUAD, C1, dense retrieval, metrics | 2 | in progress | 2.1, 2.2, 2.3, 2.9 done; 2.4/2.5 (chunk size, embedding model) need your choice; then 2.6, 2.7, 2.8, 2.10, 2.11 | [phase-2](phases/phase-2-cuad-ingest-and-dense-retrieval.md) |
+| 2 CUAD, C1, dense retrieval, metrics | 2 | in progress | 2.1 to 2.5, 2.9 and 2.11 done; next 2.6 (ingest), then 2.7, 2.8, 2.10 | [phase-2](phases/phase-2-cuad-ingest-and-dense-retrieval.md) |
 | 3 Strategies, C2, run store | 3 | todo | 3.1 | [phase-3](phases/phase-3-strategies-and-run-store.md) |
 | 4 Stats and retrieval gate | 4 | todo | 4.1 | [phase-4](phases/phase-4-stats-and-retrieval-gate.md) |
 | 5 Answers and LLM client | 5 | todo | 5.1 | [phase-5](phases/phase-5-answers-and-llm-client.md) |
@@ -33,24 +33,27 @@ Status values: `todo`, `in progress`, `blocked`, `done`. Update the row when a s
 
 Phases run in order. An agent does not start phase N+1 until phase N's exit criterion is checked, unless the user says otherwise. Phase 4 (retrieval-only gate) is the safety net: if time runs short, a credible project exists after it.
 
-## Current state and how to resume (handoff, 2026-10-19)
+## Current state and how to resume (handoff, 2026-10-28)
 
-**Exists and works** (verified in a scratch copy and locally, not yet from a real clone or CI): `uv` project on Python 3.12 (`pyproject.toml`, committed `uv.lock`), ruff, pyright strict on `src/`, pre-commit config; Docker Compose with `pgvector/pgvector:0.8.7-pg17` on `127.0.0.1:5433`; `ragcalibrate/config.py` and `logs.py`; Alembic migration 0001 (`documents`, `chunks`, no embedding column yet); `scripts/fetch_cuad.py` and `scripts/cuad_facts.py`; 9 unit tests; `docs/eval-spec.md` (approved); ADRs 0001, 0003, 0005, 0009; findings F-008 and F-009. Everything else under `src/ragcalibrate/` is an empty placeholder.
+**Exists and works** (CI green on `main` at 4e41c31; everything after that is local until the user commits and pushes): `uv` project on Python 3.12, ruff, pyright strict on `src/`, pre-commit; Docker Compose with `pgvector/pgvector:0.8.7-pg17` on `127.0.0.1:5433`; `config.py`, `logs.py`; Alembic migration 0001 (`documents`, `chunks`, no embedding storage yet); CUAD loader and hashed eval sets (`corpora/`); retrieval metrics (`harness/metrics/retrieval.py`); chunker C1 (`ingest/chunkers.py`); the local embedder (`ingest/embedding.py`, ADR 0011); 53 unit and property tests. `service/`, `stats/`, `llm/`, `report/` are still empty.
 
-**Run it:** Docker Desktop must be running and `uv` installed (`brew install uv`). `make up` (creates the local, gitignored `.env`), `uv run alembic upgrade head`, `make lint`, `make test`, `make data` (downloads CUAD to the gitignored `data/`). `make down` stops Postgres.
+**Run it:** Docker Desktop running and `uv` installed. `make up`, `uv run alembic upgrade head`, `make data` (CUAD), `make evalsets`, `make models` (134 MB embedding model), `make lint`, `make test`. `make down` stops Postgres. All downloads land in the gitignored `data/` and are sha256-checked.
+
+**Finish line (D2, 2026-10-28):** as soon as possible. Get to the end of Phase 4 (retrieval-only gate) first; apply the cut list to Phases 5 to 9.
 
 **Waiting on the user:**
-- Commit and push the working tree, then 1.12 (clean-clone exit check) and 1.5 (confirm the first CI run is green; the gitleaks action is untested).
-- Decide the Design §3 and README wording on the judge-agreement differentiator ([F-009](findings/F-009-prior-art-check.md)). Neither file was edited.
-- 0.5 and D1 (provider, keys, budget) before Phase 5.
-- Whether a second person can label about 50 calibration items ([F-005](findings/F-005-labels-must-attach-to-frozen-answers.md)), before Phase 6.
+- Commit and push the 2.4, 2.5 and 2.11 work; the first CI run of the new `make models` step is untested.
+- Whether to add an embedding-model comparison (a second dense strategy on the same chunks) and which model; ADR 0011 says how storage must look for it, and step 2.6 carries a note.
+- F-009 wording for Design §3 and the README (judge-agreement differentiator).
+- D1 (provider, keys, budget) and 0.5 before Phase 5; whether labeling (Phase 6, 5 to 10 hours, F-005) is feasible, decided when Phase 6 starts.
 
-**Next work:** Phase 2 once 1.12 passes. Step 2.5 (choose the embedding model) and the C1 chunk-size defaults are judgment calls: bring options with measurements to the user instead of picking silently. Step 2.10 must report retrieval per category and the always-abstain baseline (F-008, F-004).
+**Next work:** 2.6 (idempotent ingest; embeddings in a table keyed by `(chunk_id, embedder_id)`), 2.7 (service and `/retrieve`, embedder called via `asyncio.to_thread`), 2.8 (exact vs HNSW, ADR 0002), 2.10 (first baseline; report recall at several k and per category, F-004, F-008).
 
 **Things that bite:**
-- ruff line length is 100 and Markdown is excluded from `ruff format` (it would reformat the snippets in the docs); `Settings` is built only by `load_settings()` (one justified `pyright: ignore`); `scripts/` may print, `src/` may not.
-- Do not trust numbers copied from the design for CUAD; use F-008. Test is 70.3% unanswerable, dev 67.4%.
-- `docs/private/` and `.env` and `data/` are gitignored on purpose. The old Design §15 text is still in public git history (decision for the user, not an agent).
+- ruff line length is 100 and Markdown is excluded from `ruff format`; `Settings` is built only by `load_settings()`; `scripts/` may print, `src/` may not.
+- Tests that need `data/` (CUAD or the model) skip when the files are missing. CI downloads the model but not CUAD.
+- Do not trust numbers copied from the design for CUAD; use F-008 and the 2.4 Done note (median contract 6,739 bge tokens).
+- `docs/private/`, `.env` and `data/` are gitignored on purpose. The old Design §15 text is still in public git history (decision for the user, not an agent).
 - Agents never commit or push; propose a commit message and list new files that need `git add`.
 
 ## Agent protocol
@@ -91,7 +94,7 @@ Agents must not decide these. When answered, fill the row and date it. Source: D
 | ID | Question | Blocks | Answer | Date |
 | --- | --- | --- | --- | --- |
 | D1 | LLM provider(s) for generator and judge, and the total budget. Two model families are needed for the self-preference test and are advisable for judge vs generator in any case. | Phase 5; 0.5 | Deferred until Phase 5: the user will choose providers, keys and budget when we get there. | 2026-10-19 |
-| D2 | Hours per week available (the schedule assumes about 20; at 10, plan 14 to 16 weeks or apply the cut list now). | Schedule | Not time-bound. Cut list not applied; the design weeks give order, not deadlines. | 2026-10-19 |
+| D2 | Hours per week available (the schedule assumes about 20; at 10, plan 14 to 16 weeks or apply the cut list now). | Schedule | Changed 2026-10-28: finish as soon as possible. First finish line is the end of Phase 4 (retrieval-only gate, no LLM spend, no labels); the cut list (Design §11, items 1 to 4) applies to Phases 5 to 9. Was (2026-10-19): not time-bound, cut list not applied. | 2026-10-28 |
 | D3 | Public from day one or at v0.1? (Design leans toward public early. If yes, do 0.3 immediately and note that `docs/` is visible.) | 0.3, 9.8 | Already public (origin/main pushed). `docs/` is visible, including history before step 0.3. | 2026-10-19 |
 | D4 | Second corpus: QASPER (recommended) or another. | Phase 9 | QASPER | 2026-10-19 |
 | D5 | Package name (was the placeholder `rageval`). | Phase 1 | `ragcalibrate`. Rejected: `raglab` (taken on PyPI, clashes with RAGLAB) and `rageval` (crowded GitHub names). Free on PyPI, npm and GitHub on 2026-10-19. | 2026-10-19 |
@@ -131,6 +134,7 @@ Write each ADR when the decision is made (Design §12). Statuses: `planned`, `ac
 | 0008 | Caching and determinism strategy | 7.8 | planned |
 | 0009 | Postgres FTS naming and the BM25 question (and S1 query construction) | 1.9, 3.1 | accepted (naming); query construction added in 3.1 |
 | 0010 | Baseline management in CI | 4.9, 8.2 | planned |
+| 0011 | Local embedding model bge-small-en-v1.5 via ONNX Runtime (not sentence-transformers/PyTorch) | 2.5 | accepted |
 
 ## Document map
 
@@ -158,3 +162,4 @@ Append one line per structural change to the plan. Newest last.
 - 2026-10-19: Phase 0 closed (exit criterion met; 0.5 deferred to Phase 5). Added this file's "Current state and how to resume" section.
 - 2026-10-19: Steps 1.1 to 1.4 and 1.6 to 1.11 done; 1.5 written and blocked on the user's push. Added findings F-008 (CUAD facts) and F-009 (prior art) and ADRs 0001, 0003, 0005, 0009. README status, layout and command sections updated to match; Design §3 and the README differentiator wording left unchanged pending the user's decision on F-009.
 - 2026-10-19: Step 1.8 done. `docs/eval-spec.md` approved. It deviates from Design §8.5 on the generator primary metric (end-to-end correct rate, faithfulness as guard) and uses all of train as dev (§8.1).
+- 2026-10-28: D2 changed (finish as soon as possible; Phase 4 first, cut list for Phases 5 to 9). Steps 2.4, 2.5 and 2.11 done; ADR 0011 added (embedding model via ONNX Runtime). Handoff section refreshed.

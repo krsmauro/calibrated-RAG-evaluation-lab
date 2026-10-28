@@ -6,17 +6,20 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 # 3.12, not newer: it has asyncio.TaskGroup and asyncio.timeout, and it is the version that the
-# later heavy dependencies (torch, sentence-transformers, psycopg, pgvector) are certain to ship
-# wheels for. Raise it deliberately, in one commit, once those are installed and tested.
+# dependencies (onnxruntime, tokenizers, psycopg, pgvector) are certain to ship wheels for.
+# Raise it deliberately, in one commit, once those are installed and tested.
 requires-python = ">=3.12,<3.13"
 # Each dependency is added by the step whose code imports it (none ahead of need).
 # psycopg is the driver SQLAlchemy loads for Alembic; the service will use it directly later.
 dependencies = [
     "alembic>=1.20.0",
+    "numpy>=2.5.4",
+    "onnxruntime>=1.31.1",
     "psycopg[binary]>=3.3.6",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
     "sqlalchemy>=2.1.5",
+    "tokenizers>=0.23.3",
 ]
 
 [build-system]
@@ -25,6 +28,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.170.13",
     "pre-commit>=4.7.0",
     "pyright>=1.1.414",
     "pytest>=9.1.1",

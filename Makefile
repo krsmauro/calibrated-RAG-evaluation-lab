@@ -1,4 +1,4 @@
-.PHONY: up down test lint data evalsets
+.PHONY: up down test lint data evalsets models
 
 # Create .env from the example on first use; the values are local-development only.
 .env:
@@ -26,3 +26,7 @@ data:
 # Generate evalsets/ from the pinned CUAD zip (deterministic; compare with evalsets/cuad.manifest.json).
 evalsets: data
 	uv run python scripts/build_evalsets.py
+
+# Download the local embedding model (bge-small-en-v1.5), pinned to a commit and verified by sha256.
+models:
+	uv run python -I scripts/fetch_models.py

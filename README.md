@@ -404,6 +404,8 @@ Commands that work today (they need Docker running and `uv` installed; the first
 make up                  # start Postgres 17 + pgvector 0.8.7 on 127.0.0.1:5433
 make down                # stop it (the data volume is kept)
 make data                # download CUAD, pinned to a commit and verified by sha256
+make evalsets            # generate the hashed dev/test query and gold files from CUAD
+make models              # download the embedding model (bge-small-en-v1.5), pinned and sha256-checked
 make lint                # ruff, ruff format check, pyright (strict on src/)
 make test                # unit and property tests
 uv run alembic upgrade head   # apply the schema (migration 0001: documents, chunks)

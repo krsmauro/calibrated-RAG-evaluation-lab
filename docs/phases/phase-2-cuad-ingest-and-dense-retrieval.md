@@ -38,20 +38,31 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
   Files: `src/ragcalibrate/corpora/evalsets.py`, `scripts/build_evalsets.py`, `evalsets/README.md` (CC BY attribution), `evalsets/cuad.manifest.json`, `Makefile`, `.gitignore`, `tests/unit/test_cuad.py`.
   Deviations: (1) No random seed: eval-spec section 7 says dev is all of CUAD's train split, so nothing is carved at random (the CI-subset seed belongs to Phase 4). (2) The four `.jsonl` files (about 19 MB) are gitignored; only the manifest is committed, and the files regenerate byte for byte. **Decision for the user**: if you prefer them committed, remove the `.gitignore` line; the cost is 19 MB in history on every change.
 
-#### 2.4 [ ] Chunker C1 (fixed-size token windows with overlap)
+#### 2.4 [x] Chunker C1 (fixed-size token windows with overlap)
 - **Do:** `ingest/chunkers.py` with a versioned `chunker_id` (parameters in the id). Uses the embedding model's tokenizer so a chunk never exceeds the model's context. Returns `(start_char, end_char, text)`. Chunk size and overlap are parameters; the defaults are tuned on dev only, later.
 - **Verify:** Hypothesis property tests: `doc.text[c.start:c.end] == c.text`; chunks cover the document; no chunk exceeds the token limit; deterministic for the same input.
 - **Refs:** Design §5.3, §7, §9 (Testing).
+- Claimed: Claude, 2026-10-28. Starting defaults chosen by the user on 2026-10-28: 256 tokens, 32 overlap.
+- **Done:** 2026-10-28, Claude. `ingest/chunkers.py`: `chunk_c1(text, tokenizer, size, overlap)` returns `Chunk(start_char, end_char, text)` windows of the bge tokenizer's tokens, with edges moved to word starts so a chunk re-tokenizes to exactly its window and never starts or ends mid-word. `c1_id` names version, tokenizer and parameters (`c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32`).
+  Evidence: `tests/property/test_chunker_c1.py`, 12 tests: Hypothesis properties (exact ordered slices, every token inside a chunk, no chunk over its window, zero overlap means disjoint, deterministic), a hand-worked example, the long-word split, empty input, bad parameters. Hypothesis found one bug during development (a window whose end moved back produced a chunk inside the previous one, input `"The The Licensee"`, size 2, overlap 1); fixed and covered. Passes with five seeds and the derandomized CI profile. On all 510 CUAD contracts at 256/32: 24,872 chunks (per contract min 1, median 30, p95 160, max 351), longest re-tokenized chunk 256 tokens, 0 words split, median chunk 1,255 characters, 87.0% of gold spans (12,021 of 13,823) lie wholly inside one chunk, top 5 chunks are 16.7% of a median contract. Contracts are 6,739 tokens at the median (p95 35,681, max 78,591; F-008 estimated about 8,300 from chars/4). No contract contains a NUL character (Postgres text would reject it). Chunking all of CUAD takes 8.3 s.
+  Files: `src/ragcalibrate/ingest/chunkers.py`, `tests/property/test_chunker_c1.py`, `tests/conftest.py` (Hypothesis `ci` profile, derandomized when `CI` is set), `pyproject.toml` and `uv.lock` (`hypothesis` dev dependency).
+  Deviations: chunks follow word boundaries, which the step did not ask for; the reason is in the docstring. A single word longer than the window is split (none in CUAD at 256). The chunker takes the tokenizer as an argument and the id names it, so another embedding model can embed the same chunks (see ADR 0011, Consequences).
 
-#### 2.5 [ ] Choose and wrap the local embedding model
+#### 2.5 [x] Choose and wrap the local embedding model
 - **Do:** pick a local embedding model. Decision criteria: license permits the use, fits CPU in CI, context length at least the chunk size, runtime per chunk. Record the choice, version/revision and the benchmark in a finding or ADR. Embedding is CPU-bound: run it off the event loop (`asyncio.to_thread` or a process pool) and batch it.
 - **Verify:** embedding the same text twice gives the same vector (or document the tolerance); throughput measured on stated hardware.
 - **Refs:** Design §7 (local models); skill BE-CRITICAL-2.
+- Claimed: Claude, 2026-10-28. Model chosen by the user on 2026-10-28: `BAAI/bge-small-en-v1.5`.
+- **Done:** 2026-10-28, Claude. `ingest/embedding.py`: `Embedder` runs the model's own ONNX export with ONNX Runtime on CPU (CLS pooling, L2 norm, batched), pinned to commit `5c38ec7c4...`; `scripts/fetch_models.py` and `make models` download and sha256-check the two files into `data/models/`. ADR 0011 records the choice, alternatives and numbers.
+  Evidence: against sentence-transformers 6.2.0 on 241 CUAD texts, min cosine 0.9999998, max abs difference 3.6e-7, identical top-10 rankings for all 41 questions. Same text twice: bitwise identical; alone vs in a padded batch: at most 9.7e-8. Throughput on an Apple M5 (10 cores): 59 chunks/s at batch 16 (all of CUAD in about 7 minutes), 4.4 ms per question. `make models` twice: second run downloads nothing. `tests/unit/test_embedding.py`, 6 tests (pinned reference values, shape and norm, empty input, determinism, batching tolerance, a relevance sanity check). Whole suite 53 passed; ruff, format and pyright clean; `actionlint` clean.
+  Files: `src/ragcalibrate/ingest/embedding.py`, `scripts/fetch_models.py`, `tests/unit/test_embedding.py`, `docs/adr/0011-local-embedding-model-onnx.md`, `Makefile` (`models`), `.github/workflows/ci.yml` (test job runs `make models`), `README.md` (commands), `pyproject.toml` and `uv.lock` (`onnxruntime`, `tokenizers`, `numpy`).
+  Deviations: ONNX Runtime instead of sentence-transformers and PyTorch (ADR 0011). Embedding is batched but not yet called off the event loop, because there is no async caller yet; the module docstring requires `asyncio.to_thread`, and step 2.7 must do it. The CI change is untested until you push. No query instruction prefix (ADR 0011).
 
 #### 2.6 [ ] Idempotent ingest with bulk load
 - **Do:** `ingest` keyed on document content hash; chunks keyed on `(document_id, chunker_id, start_char, end_char)`; bulk-load with `COPY`; migration adds the B-tree on `(document_id, chunker_id)`. `make ingest` ingests all CUAD documents with C1.
 - **Verify:** integration test against real Postgres via testcontainers: ingest twice, row counts unchanged; an interrupted ingest resumes cleanly.
 - **Refs:** Design §6, §9 (Database).
+- Note (2026-10-28, from 2.5): store embeddings in their own table keyed by `(chunk_id, embedder_id)` rather than as a fixed `vector(384)` column on `chunks`, so a second embedding model can be compared on the same chunks without a schema rewrite (ADR 0011).
 
 #### 2.7 [ ] Service skeleton and `/retrieve` for S2
 - **Do:** FastAPI app with lifespan-created pool and model. Wire models (`RetrieveRequest`, `RetrieveResponse`) live in **one** module imported by both `service` and the harness adapter. `POST /retrieve {query, doc_id, strategy, chunker_id, k}` returns chunks with offsets and scores. `GET /healthz`, `GET /readyz`. Errors as RFC 9457 problem details through one registered handler. Add the import-linter contract: `harness` must not import `service`, and `service` must not import `harness`.
@@ -78,6 +89,10 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 - **Verify:** one command reproduces the numbers twice. Record the values in `docs/results.md` as provisional (dev, not final).
 - **Refs:** Design §8.2; finding F-004.
 
-#### 2.11 [ ] Write `references/eval/eval-integrity-rules.md`
+#### 2.11 [x] Write `references/eval/eval-integrity-rules.md`
 - **Do:** short checklist for leakage, ground truth, metric definitions, manifests, abstention, drawn from Design §5 and the skill's inline EVAL rules.
 - **Verify:** file exists and SKILL.md's map is updated.
+- **Done:** 2026-10-28, Claude. Nothing new written: the file was created in step 0.4 (Phase 0) and already covers leakage (EVAL-CRITICAL-1), ground truth and span overlap (-2), chunk-size bias (-3), abstention (-4), dev/test discipline (-5), metric definitions (EVAL-HIGH-1), manifests (-2), append-only runs (-3) and honest reporting (-4).
+  Evidence: the file exists (57 lines, ten rule sections); SKILL.md links it twice (routing table and reference map).
+  Files: none.
+  Deviations: the step was already satisfied by Phase 0 work.
