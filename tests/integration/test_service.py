@@ -15,7 +15,7 @@ import pytest
 
 from ragcalibrate.contract import Problem, RetrieveRequest, RetrieveResponse
 from ragcalibrate.corpora.schema import Document, Query
-from ragcalibrate.harness.adapter import HttpSut, SutError
+from ragcalibrate.harness.adapter import HttpSut, SutError, SutNotReady
 from ragcalibrate.harness.run import retrieve_all
 from ragcalibrate.ingest.chunkers import c1_id, chunk_c1
 from ragcalibrate.ingest.embedding import EMBEDDER_ID, Embedder, load_tokenizer
@@ -178,6 +178,16 @@ async def test_ready_only_at_the_expected_schema_revision(
     response = await client.get("/readyz")
     assert response.status_code == 503
     assert Problem.model_validate_json(response.content).code == "not_ready"
+
+
+async def test_the_harness_checks_readiness_before_a_run(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await HttpSut(client).check_ready()
+    at_head = routes.SCHEMA_REVISION
+    monkeypatch.setattr(routes, "SCHEMA_REVISION", "9999")
+    with pytest.raises(SutNotReady, match=f"503 not_ready: database schema is at '{at_head}'"):
+        await HttpSut(client).check_ready()
 
 
 async def test_the_harness_adapter_speaks_the_contract(client: httpx.AsyncClient) -> None:

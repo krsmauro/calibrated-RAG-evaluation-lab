@@ -22,3 +22,5 @@ Not a blocker for v0.1 if the README claim stays modest (README section 7 does t
 
 ## Resolution
 2026-10-28, step 2.7 (partial, a base for item 1 only): the wire models exist in one module, `ragcalibrate/contract.py`; the service publishes them as OpenAPI at `/docs`, with every error as RFC 9457 problem details; `RetrievedChunk` documents its offsets as half-open character offsets into the raw text. Items 1 (a prose spec, including that offsets must refer to the exact text the gold labels use) to 5 are still missing. Status unchanged: open, and the scope decision is still the user's.
+
+2026-10-28, after step 3.2: the harness now calls `GET /readyz` once before a run and stops with one readable line if the service is unreachable or answers with an error (`HttpSut.check_ready`). An outside service must therefore also answer `GET /readyz` with a 2xx when it can take queries; a prose contract spec (item 1) should list it. Status unchanged.

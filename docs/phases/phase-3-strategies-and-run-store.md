@@ -60,6 +60,7 @@ Claimed: Claude (Opus 5.5, VS Code session), 2026-10-28
 - **Verify:** kill the run midway, resume, final store equals an uninterrupted run. Config validation errors are readable.
 - **Refs:** Design §8.6, §9; `docs/llm-production-best-practices.md` (Retries and timeouts).
 - Note (2026-10-28, from 2.10): `harness/run.py` and `harness/cli.py` are the minimal version: answerable dev queries only, one JSON file per run in the gitignored `runs/`, no retries, no resume. 3.5 to 3.7 replace the JSON file and the flags; keep the eval-set hash check, the per-query rankings and the per-category table. The CLI logs every HTTP request at INFO through httpx's logger (one line per query, 5,458 on dev), which buries the summary; quiet that logger in the rewrite.
+- Note (2026-10-28, after 3.2): `ragcalibrate run` now calls `/readyz` first (`HttpSut.check_ready` in `harness/adapter.py`) and, if the service is down or not migrated, prints one line and exits with code 1 instead of a traceback per query in flight. Keep that check in the full runner; it covers the service, not config errors.
 
 #### 3.8 [ ] Determinism test
 - **Do:** make ranking deterministic: explicit tiebreak (for example by chunk id) after score sort, so equal scores cannot reorder between runs.

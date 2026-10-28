@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from ragcalibrate.contract import Strategy
 from ragcalibrate.corpora import evalsets
 from ragcalibrate.corpora.schema import Split
-from ragcalibrate.harness.adapter import TIMEOUT, HttpSut
+from ragcalibrate.harness.adapter import TIMEOUT, HttpSut, SutNotReady
 from ragcalibrate.harness.run import (
     K_VALUES,
     MRR_K,
@@ -93,17 +93,23 @@ def main(argv: list[str] | None = None) -> int:
         fusion_depth = DEFAULT_FUSION_DEPTH if fusion_depth is None else fusion_depth
 
     configure_logging()
-    result = asyncio.run(
-        _run(
-            args.split,
-            args.strategy,
-            args.chunker_id,
-            args.base_url,
-            args.concurrency,
-            rrf_k,
-            fusion_depth,
+    try:
+        result = asyncio.run(
+            _run(
+                args.split,
+                args.strategy,
+                args.chunker_id,
+                args.base_url,
+                args.concurrency,
+                rrf_k,
+                fusion_depth,
+            )
         )
-    )
+    except SutNotReady as exc:
+        # A setup problem, not a bug: one line instead of a traceback per query in flight.
+        hint = "the service must be running (`make serve`, after `make up` and `make ingest`)"
+        sys.stderr.write(f"ragcalibrate: {exc}; {hint}, or pass --base-url\n")
+        return 1
     out: Path = args.out or Path("runs") / f"{result.manifest.created_at.replace(':', '')}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(result.model_dump_json(indent=1) + "\n", encoding="utf-8")
@@ -120,16 +126,18 @@ async def _run(
     rrf_k: int | None,
     fusion_depth: int | None,
 ) -> RunResult:
-    manifest = evalsets.verify(EVALSETS)  # the files on disk are the hashed ones
-    gold = [g for g in evalsets.read_gold(EVALSETS, split) if g.answerable]
-    wanted = {g.query_id for g in gold}
-    queries = [q for q in evalsets.read_queries(EVALSETS, split) if q.id in wanted]
-    gold_of = {g.query_id: g for g in gold}
-    k = max(*K_VALUES, MRR_K)
-    created_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     async with httpx.AsyncClient(base_url=base_url, timeout=TIMEOUT) as client:
+        sut = HttpSut(client)
+        await sut.check_ready()  # first: a service that is down fails here, before any work
+        manifest = evalsets.verify(EVALSETS)  # the files on disk are the hashed ones
+        gold = [g for g in evalsets.read_gold(EVALSETS, split) if g.answerable]
+        wanted = {g.query_id for g in gold}
+        queries = [q for q in evalsets.read_queries(EVALSETS, split) if q.id in wanted]
+        gold_of = {g.query_id: g for g in gold}
+        k = max(*K_VALUES, MRR_K)
+        created_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         responses = await retrieve_all(
-            HttpSut(client),
+            sut,
             queries,
             corpus=CORPUS,
             strategy=strategy,
