@@ -15,8 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 MAX_K = 100
 MAX_QUERY_CHARS = 2_000
 
-# S2 (Design §7). S1, S3 and S4 are added in plan phase 3.
-Strategy = Literal["dense"]
+# Design §7: S1 is "fts" (Postgres full-text search, not BM25: ADR 0009), S2 is "dense". S3 and
+# S4 are added in plan phase 3.
+Strategy = Literal["fts", "dense"]
 
 
 class _Wire(BaseModel):
@@ -35,13 +36,23 @@ class RetrieveRequest(_Wire):
     )
     k: int = Field(ge=1, le=MAX_K)
 
+    @model_validator(mode="after")
+    def _embedder_only_for_dense(self) -> "RetrieveRequest":
+        # Rejected, not ignored: a run config that names a model fts never uses is a mistake.
+        if self.strategy == "fts" and self.embedder_id is not None:
+            raise ValueError("embedder_id applies to dense retrieval; fts uses no embedding model")
+        return self
+
 
 class RetrievedChunk(_Wire):
     chunk_id: int
     start_char: int = Field(ge=0, description="Half-open character offsets into the raw text.")
     end_char: int
     text: str
-    score: float = Field(description="Higher is better. Dense: cosine similarity.")
+    score: float = Field(
+        description="Higher is better. Dense: cosine similarity. FTS: Postgres ts_rank, which is"
+        " comparable only within one response."
+    )
 
     @model_validator(mode="after")
     def _ordered(self) -> "RetrievedChunk":
@@ -55,7 +66,8 @@ class RetrieveResponse(_Wire):
     chunker_id: str
     embedder_id: str | None = Field(description="The model actually used; null for lexical.")
     chunks: list[RetrievedChunk] = Field(
-        description="Best first; fewer than k when the document has fewer chunks."
+        description="Best first; fewer than k when the document has fewer chunks. FTS returns only"
+        " chunks that share a word with the query, so it can return fewer than k, or none."
     )
 
 

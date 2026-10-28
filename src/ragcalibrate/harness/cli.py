@@ -12,6 +12,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import get_args
 
 import httpx
 from pydantic import BaseModel
@@ -37,7 +38,6 @@ EVALSETS = Path("evalsets")
 # internal: the harness names it, the service looks it up. Experiment YAML replaces this (3.7).
 DEFAULT_CHUNKER = "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
 CORPUS = "cuad"
-STRATEGY: Strategy = "dense"  # the only one until plan phase 3
 
 
 class Manifest(BaseModel):
@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     run = commands.add_parser("run", help="score retrieval on the dev split's answerable queries")
     # Only dev: the test split is run once per frozen configuration (plan step 4.8), not ad hoc.
     run.add_argument("--split", choices=["dev"], default="dev")
+    run.add_argument("--strategy", choices=get_args(Strategy), default="dense")
     run.add_argument("--chunker-id", default=DEFAULT_CHUNKER)
     run.add_argument("--base-url", default="http://127.0.0.1:8000")
     run.add_argument("--concurrency", type=int, default=8)
@@ -76,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     configure_logging()
-    result = asyncio.run(_run(args.split, args.chunker_id, args.base_url, args.concurrency))
+    result = asyncio.run(
+        _run(args.split, args.strategy, args.chunker_id, args.base_url, args.concurrency)
+    )
     out: Path = args.out or Path("runs") / f"{result.manifest.created_at.replace(':', '')}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(result.model_dump_json(indent=1) + "\n", encoding="utf-8")
@@ -84,7 +87,9 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-async def _run(split: Split, chunker_id: str, base_url: str, concurrency: int) -> RunResult:
+async def _run(
+    split: Split, strategy: Strategy, chunker_id: str, base_url: str, concurrency: int
+) -> RunResult:
     manifest = evalsets.verify(EVALSETS)  # the files on disk are the hashed ones
     gold = [g for g in evalsets.read_gold(EVALSETS, split) if g.answerable]
     wanted = {g.query_id for g in gold}
@@ -97,7 +102,7 @@ async def _run(split: Split, chunker_id: str, base_url: str, concurrency: int) -
             HttpSut(client),
             queries,
             corpus=CORPUS,
-            strategy=STRATEGY,
+            strategy=strategy,
             chunker_id=chunker_id,
             k=k,
             concurrency=concurrency,
@@ -115,7 +120,7 @@ async def _run(split: Split, chunker_id: str, base_url: str, concurrency: int) -
             evalset_hash=manifest.evalset_hash,
             corpus=CORPUS,
             split=split,
-            strategy=STRATEGY,
+            strategy=strategy,
             chunker_id=chunker_id,
             embedder_id=embedders.pop(),
             k=k,

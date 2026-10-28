@@ -10,7 +10,7 @@ import psycopg
 from fastapi import APIRouter, Depends
 from psycopg_pool import PoolTimeout
 
-from ragcalibrate.contract import Problem, RetrieveRequest, RetrieveResponse
+from ragcalibrate.contract import Problem, RetrievedChunk, RetrieveRequest, RetrieveResponse
 from ragcalibrate.service import retrieval
 from ragcalibrate.service.deps import Resources, get_resources
 from ragcalibrate.service.errors import PROBLEM_JSON, NotReady, UnknownEmbedder
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # The migration the code expects; /readyz fails until the database is at it. A test checks that
 # this equals Alembic's head, so a new migration cannot be forgotten here.
-SCHEMA_REVISION = "0002"
+SCHEMA_REVISION = "0003"
 
 router = APIRouter()
 
@@ -67,6 +67,36 @@ async def retrieve(
 ) -> RetrieveResponse:
     """The k best chunks of one document for a query, with offsets into the raw text."""
     started = time.perf_counter()
+    match body.strategy:
+        case "fts":
+            embedder_id = None
+            async with resources.pool.connection() as conn:
+                chunks = await retrieval.fts(
+                    conn,
+                    corpus=body.corpus,
+                    doc_id=body.doc_id,
+                    chunker_id=body.chunker_id,
+                    query=body.query,
+                    k=body.k,
+                )
+        case "dense":
+            embedder_id, chunks = await _dense(body, resources)
+    logger.info(
+        "retrieve.completed",
+        extra={
+            "doc_id": body.doc_id,
+            "strategy": body.strategy,
+            "k": body.k,
+            "returned": len(chunks),
+            "latency_ms": round((time.perf_counter() - started) * 1000, 1),
+        },
+    )
+    return RetrieveResponse(
+        strategy=body.strategy, chunker_id=body.chunker_id, embedder_id=embedder_id, chunks=chunks
+    )
+
+
+async def _dense(body: RetrieveRequest, resources: Resources) -> tuple[str, list[RetrievedChunk]]:
     embedder_id = body.embedder_id or resources.default_embedder_id
     embed = resources.embedders.get(embedder_id)
     if embed is None:
@@ -83,16 +113,4 @@ async def retrieve(
             query_vector=query_vector,
             k=body.k,
         )
-    logger.info(
-        "retrieve.completed",
-        extra={
-            "doc_id": body.doc_id,
-            "strategy": body.strategy,
-            "k": body.k,
-            "returned": len(chunks),
-            "latency_ms": round((time.perf_counter() - started) * 1000, 1),
-        },
-    )
-    return RetrieveResponse(
-        strategy=body.strategy, chunker_id=body.chunker_id, embedder_id=embedder_id, chunks=chunks
-    )
+    return embedder_id, chunks

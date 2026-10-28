@@ -34,6 +34,7 @@ Agents prepare branches and commits-ready changes only. They never push or open 
 - **Do:** a tidy-looking change a reviewer would approve, such as switching the FTS text-search config from `english` to `simple`. **First check it actually moves the metric** on the CI subset; if it does not, pick another realistic regression and record why in a finding (a demo that does not fail is a bad demo). Prepare it on a local branch.
 - **Verify:** gate returns Fail with the CI shown in the comment (after the user pushes and opens the PR).
 - **Refs:** Design §11 (demo PR idea).
+- Note (2026-10-28, from 3.1): the configuration lives in two places that must change together: a new migration that rebuilds the generated column `chunks.tsv` (migration 0003 builds it with `english`) and `FTS_CONFIG` in `service/retrieval.py`. The integration test `test_fts_parses_queries_with_the_configuration_the_column_was_built_with` fails if only one changes. S1 relies on exact terms (finding F-011), so the change is likely to move its metric, but measure it.
 
 #### 8.6 [ ] Demo PR B: benign change
 - **Do:** a harmless change (for example refactor, comment, or an equivalent-behaviour tweak) that must Pass.

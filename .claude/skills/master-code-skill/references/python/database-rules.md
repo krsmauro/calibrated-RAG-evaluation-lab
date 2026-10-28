@@ -23,7 +23,7 @@ See `SEC-CRITICAL-2`. Multi-statement writes that must be atomic (a query's retr
 
 ## DB-HIGH-2 — Full-text search is not BM25
 
-`ts_rank`/`ts_rank_cd` don't implement IDF-based BM25. Name the strategy "Postgres FTS" in code, config, docs and reports. The text-search configuration (`english` vs `simple`) is part of the strategy ID — switching it changes stemming and results (this is the planned "demo regression"; changing it must be a deliberate, versioned change). Use `websearch_to_tsquery` for user text; store `tsv` as a generated column or maintain it consistently.
+`ts_rank`/`ts_rank_cd` don't implement IDF-based BM25. Name the strategy "Postgres FTS" in code, config, docs and reports. The text-search configuration (`english` vs `simple`) is part of the strategy ID — switching it changes stemming and results (this is the planned "demo regression"; changing it must be a deliberate, versioned change). S1 does not use `websearch_to_tsquery`: it ANDs every word, and on CUAD's long templated questions 84% of dev queries matched nothing (F-002). S1 builds an OR over the query's lexemes, each quoted for the tsquery syntax, and ranks with `ts_rank` (ADR 0009). `tsv` is a stored generated column (migration 0003); the query's `FTS_CONFIG` must match the column's configuration (an integration test checks it). No GIN index under the per-document filter: the planner does not use it (ADR 0009).
 
 ## DB-HIGH-3 — Bulk load with `COPY`; keep ingestion idempotent
 

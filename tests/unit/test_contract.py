@@ -34,7 +34,8 @@ def test_a_request_has_no_field_that_could_carry_a_label() -> None:
         ({"gold": [[0, 10]]}, "Extra inputs are not permitted"),
         ({"k": "5"}, "Input should be a valid integer"),
         ({"k": 0}, "greater than or equal to 1"),
-        ({"strategy": "bm25"}, "Input should be 'dense'"),
+        ({"strategy": "bm25"}, "Input should be 'fts' or 'dense'"),
+        ({"strategy": "fts", "embedder_id": "some-model"}, "fts uses no embedding model"),
     ],
 )
 def test_bad_requests_are_rejected_not_coerced(change: dict[str, Any], error: str) -> None:

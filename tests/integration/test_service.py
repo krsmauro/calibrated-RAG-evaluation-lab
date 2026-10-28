@@ -22,6 +22,7 @@ from ragcalibrate.ingest.embedding import EMBEDDER_ID, Embedder, load_tokenizer
 from ragcalibrate.ingest.load import embed_chunks, ingest_documents
 from ragcalibrate.service import routes
 from ragcalibrate.service.app import create_app
+from ragcalibrate.service.retrieval import FTS_CONFIG
 
 MODEL_DIR = Path(__file__).parents[2] / "data" / "models" / "bge-small-en-v1.5"
 
@@ -130,6 +131,15 @@ async def test_concurrent_requests_give_the_same_answers_as_sequential_ones(
         ("POST", "/retrieve", request(doc_id="nope"), 404, "document_not_found"),
         ("POST", "/retrieve", request(chunker_id="c9"), 404, "not_indexed"),
         ("POST", "/retrieve", request(embedder_id="other-model"), 422, "unknown_embedder"),
+        ("POST", "/retrieve", request(strategy="fts", doc_id="nope"), 404, "document_not_found"),
+        ("POST", "/retrieve", request(strategy="fts", chunker_id="c9"), 404, "not_indexed"),
+        (
+            "POST",
+            "/retrieve",
+            request(strategy="fts", embedder_id=EMBEDDER_ID),
+            422,
+            "invalid_request",
+        ),
         ("POST", "/retrieve", request(gold=[[0, 5]]), 422, "invalid_request"),
         ("POST", "/retrieve", request(k=101), 422, "invalid_request"),
         ("GET", "/nowhere", None, 404, "http_error"),
@@ -177,3 +187,65 @@ async def test_retrieve_all_keeps_query_order_under_concurrency(client: httpx.As
         concurrency=4,
     )  # fmt: skip
     assert responses == [await retrieve(client, query=t) for t in texts]
+
+
+async def test_fts_ranks_chunks_that_share_words_with_the_query(
+    client: httpx.AsyncClient,
+) -> None:
+    result = await retrieve(client, strategy="fts", query="Which state's law governs?")
+    assert (result.strategy, result.embedder_id) == ("fts", None)
+    clause_start, clause_end = ALPHA.index("4. Governing Law"), ALPHA.index("5. Termination")
+    best = result.chunks[0]
+    assert best.start_char < clause_end and clause_start < best.end_char
+    # Best first, and equal scores in document order (the same tiebreak as dense).
+    order = [(-c.score, c.start_char) for c in result.chunks]
+    assert order == sorted(order)
+    for c in result.chunks:
+        assert ALPHA[c.start_char : c.end_char] == c.text
+
+
+@pytest.mark.parametrize(
+    ("query", "must_contain"),
+    [
+        ("Delaware", ["Delaware"]),  # in one chunk only: one result, not k
+        ("terminating", ["Termination"]),  # `english` stems both to the same lexeme
+        ("xylophone", []),  # no chunk shares a word: an empty answer, not an error
+        ("the of and", []),  # only stopwords: no lexemes, so nothing matches
+    ],
+)
+async def test_fts_returns_only_chunks_that_match(
+    client: httpx.AsyncClient, query: str, must_contain: list[str]
+) -> None:
+    result = await retrieve(client, strategy="fts", query=query, k=3)
+    assert len(result.chunks) == len(must_contain)
+    for chunk, word in zip(result.chunks, must_contain, strict=True):
+        assert word in chunk.text
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "it's the other party's O'Brien",
+        "terms at http://example.com/o'brien/law",  # a URL gives a lexeme with a quote in it
+        r"C:\path\to a back\\slash \' \\'",
+        "law | secret & !pay <-> (term) :* law:A",
+        '"governing law" -delaware or payment',
+        "%s %(k)s {} 100% ;-- DROP TABLE chunks",
+    ],
+)
+async def test_fts_takes_any_text_as_words_not_as_query_syntax(
+    client: httpx.AsyncClient, query: str
+) -> None:
+    # Quotes, backslashes and tsquery operators in the text must neither break the query nor
+    # change its structure.
+    await retrieve(client, strategy="fts", query=query)
+
+
+def test_fts_parses_queries_with_the_configuration_the_column_was_built_with(
+    corpus: None, database_url: str
+) -> None:
+    sql = "SELECT bool_and(tsv = to_tsvector(%s::regconfig, text)) FROM chunks"
+    with psycopg.connect(database_url) as conn:
+        assert conn.execute(sql, (FTS_CONFIG,)).fetchone() == (True,)
+        # The check can fail: without stemming the same text gives different lexemes.
+        assert conn.execute(sql, ("simple",)).fetchone() == (False,)

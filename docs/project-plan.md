@@ -23,7 +23,7 @@ Status values: `todo`, `in progress`, `blocked`, `done`. Update the row when a s
 | 0 Pre-flight | none | done (exit criterion met) | 0.3, 0.4, 0.6 done; D1 to D5 answered; 0.5 (API key and spend limit, owner: user) deferred to Phase 5 with D1 | [phase-0](phases/phase-0-preflight.md) |
 | 1 Eval spec and skeleton | 1 | done (exit criterion met 2026-10-19; CI green, clean-clone check passed) | F-009 wording decision for Design §3 and the README is still pending with the user | [phase-1](phases/phase-1-spec-and-skeleton.md) |
 | 2 CUAD, C1, dense retrieval, metrics | 2 | done (exit criterion met 2026-10-28; CI green at b0b3aea) | S2 dev baseline: recall@5 0.489, MRR@10 0.393 (provisional, `docs/results.md`) | [phase-2](phases/phase-2-cuad-ingest-and-dense-retrieval.md) |
-| 3 Strategies, C2, run store | 3 | todo | 3.1 (S1, Postgres FTS; check F-002 first) | [phase-3](phases/phase-3-strategies-and-run-store.md) |
+| 3 Strategies, C2, run store | 3 | in progress | 3.1 done 2026-10-28 (S1 dev recall@5 0.560, ahead of S2: F-011); next 3.2 (S3, RRF) | [phase-3](phases/phase-3-strategies-and-run-store.md) |
 | 4 Stats and retrieval gate | 4 | todo | 4.1; 4.10 (embedding-model comparison, added 2026-10-28) runs after 4.4 and is outside the exit criterion | [phase-4](phases/phase-4-stats-and-retrieval-gate.md) |
 | 5 Answers and LLM client | 5 | todo | 5.1 | [phase-5](phases/phase-5-answers-and-llm-client.md) |
 | 6 Judge and labels | 6 | todo | 6.1 | [phase-6](phases/phase-6-judge-and-labels.md) |
@@ -33,9 +33,9 @@ Status values: `todo`, `in progress`, `blocked`, `done`. Update the row when a s
 
 Phases run in order. An agent does not start phase N+1 until phase N's exit criterion is checked, unless the user says otherwise. Phase 4 (retrieval-only gate) is the safety net: if time runs short, a credible project exists after it.
 
-## Current state and how to resume (handoff, 2026-10-28)
+## Current state and how to resume (handoff, 2026-10-28, after step 3.1)
 
-**Exists and works** (all of Phase 2 committed and pushed as b0b3aea; CI green there: import-linter contract kept, 62 unit and property tests passed and 1 skipped, 19 integration tests passed): `uv` project on Python 3.12, ruff, pyright strict on `src/`, import-linter, pre-commit; Docker Compose with `pgvector/pgvector:0.8.7-pg17` on `127.0.0.1:5433`; `config.py`, `logs.py`; Alembic migrations 0001 (`documents`, `chunks`) and 0002 (`chunk_embeddings`, untyped `vector`, one row per chunk and embedder); CUAD loader and hashed eval sets (`corpora/`); retrieval metrics (`harness/metrics/retrieval.py`); chunker C1 (`ingest/chunkers.py`); the local embedder (`ingest/embedding.py`, ADR 0011); resumable ingest (`ingest/load.py`, `make ingest`: 510 documents, 24,872 chunks, 24,872 vectors); the wire models (`contract.py`); the service (`service/`, `make serve`: `/retrieve` S2 by exact search (ADR 0002), `/healthz`, `/readyz`, problem-details errors); the minimal harness (`harness/{adapter,run,cli}.py`, `uv run ragcalibrate run`: dev answerable queries, JSON result in `runs/`). Tests: 63 unit and property, 19 integration (testcontainers, `make test-integration`). `stats/`, `llm/`, `report/` are still empty.
+**Exists and works** (all of Phase 2 committed and pushed as b0b3aea; CI green there: import-linter contract kept, 62 unit and property tests passed and 1 skipped, 19 integration tests passed. Step 3.1 is in the working tree, not yet committed: locally `make lint` clean, 64 unit and property tests and 34 integration tests passed; not yet run in CI): `uv` project on Python 3.12, ruff, pyright strict on `src/`, import-linter, pre-commit; Docker Compose with `pgvector/pgvector:0.8.7-pg17` on `127.0.0.1:5433`; `config.py`, `logs.py`; Alembic migrations 0001 (`documents`, `chunks`), 0002 (`chunk_embeddings`, untyped `vector`, one row per chunk and embedder) and 0003 (`chunks.tsv`, stored generated `to_tsvector('english', text)`, no GIN index); CUAD loader and hashed eval sets (`corpora/`); retrieval metrics (`harness/metrics/retrieval.py`); chunker C1 (`ingest/chunkers.py`); the local embedder (`ingest/embedding.py`, ADR 0011); resumable ingest (`ingest/load.py`, `make ingest`: 510 documents, 24,872 chunks, 24,872 vectors); the wire models (`contract.py`); the service (`service/`, `make serve`: `/retrieve` with `strategy` `fts` (S1, OR over the question's lexemes, `ts_rank`, ADR 0009) or `dense` (S2, exact search, ADR 0002), `/healthz`, `/readyz`, problem-details errors); the minimal harness (`harness/{adapter,run,cli}.py`, `uv run ragcalibrate run [--strategy fts]`: dev answerable queries, JSON result in `runs/`); measurement scripts `scripts/measure_hnsw.py` (2.8) and `scripts/measure_fts.py` (3.1). Tests: 64 unit and property, 34 integration (testcontainers, `make test-integration`). `stats/`, `llm/`, `report/` are still empty.
 
 **Run it:** Docker Desktop running and `uv` installed. `make up`, `make data` (CUAD), `make evalsets`, `make models` (134 MB embedding model), `make ingest` (applies migrations; about 7 minutes the first time), `make serve`, `make lint`, `make test`, `make test-integration`. `make down` stops Postgres. All downloads land in the gitignored `data/` and are sha256-checked.
 
@@ -46,11 +46,12 @@ Phases run in order. An agent does not start phase N+1 until phase N's exit crit
 - F-009 wording for Design §3 and the README (judge-agreement differentiator).
 - D1 (provider, keys, budget) and 0.5 before Phase 5; whether labeling (Phase 6, 5 to 10 hours, F-005) is feasible, decided when Phase 6 starts.
 
-**Next work:** Phase 3 from 3.1 (S1 Postgres FTS: settle F-002's query construction first), then 3.2 to 3.9; the minimal JSON run (2.10) becomes the SQLite run store and full runner in 3.5 to 3.7. Then Phase 4; the embedding comparison (4.10) after 4.4. Storage and `/retrieve` already support a second embedder (`embedder_id`). First numbers to keep in mind: S2 dev recall@5 0.489 (no ceiling, F-004), and the front-matter categories are the hardest for S2, not the easiest (F-008 note). The Phase 3 file carries notes from Phase 2 under 3.1, 3.3, 3.4, 3.6, 3.7, 3.8 and 3.9; read the one for your step before starting it (3.1's matters most: `/retrieve` does not dispatch on `strategy` yet).
+**Next work:** the user commits step 3.1; then rerun `uv run ragcalibrate run --strategy fts` on the clean commit and repoint the S1 row in `docs/results.md` (as was done for S2). Then Phase 3 from 3.2 (S3, RRF), then 3.3 to 3.9; the minimal JSON run (2.10) becomes the SQLite run store and full runner in 3.5 to 3.7. Then Phase 4; the embedding comparison (4.10) after 4.4. Storage and `/retrieve` already support a second embedder (`embedder_id`). Numbers to keep in mind (dev, provisional, no CI): S1 recall@5 0.560 and MRR@10 0.455, S2 0.489 and 0.393; S1 is ahead in 29 of 41 categories (F-011), so S3 and S4 must beat S1, not only S2. Neither is near a ceiling (F-004). The Phase 3 file carries notes under 3.2, 3.3, 3.4, 3.6, 3.7, 3.8 and 3.9; read the one for your step before starting it.
 
 **Things that bite:**
 - ruff line length is 100 and Markdown is excluded from `ruff format`; `Settings` is built only by `load_settings()`; `scripts/` may print, `src/` may not.
 - Tests that need `data/` (CUAD or the model) skip when the files are missing. CI downloads the model but not CUAD.
+- S1 returns only chunks that share a word with the query: fewer than k, or none, is a valid answer, not an error. Its text-search configuration lives in two places (migration 0003's generated column and `FTS_CONFIG` in `service/retrieval.py`); an integration test fails if they differ.
 - Do not trust numbers copied from the design for CUAD; use F-008 and the 2.4 Done note (median contract 6,739 bge tokens).
 - A process started with `&` from a non-interactive shell ignores SIGINT; to interrupt a background ingest, use SIGTERM.
 - `docs/private/`, `.env` and `data/` are gitignored on purpose. The old Design §15 text is still in public git history (decision for the user, not an agent).
@@ -107,7 +108,7 @@ Open one only if **Affects** lists your step. Newest last.
 | ID | One line | Affects | Status | Evidence |
 | --- | --- | --- | --- | --- |
 | [F-001](findings/F-001-judge-criteria-inconsistent.md) | Design lists three judge criteria in §5.6 but two in §8.3 | 1.8, 6.x, 7.2 | resolved (eval-spec §5) | read |
-| [F-002](findings/F-002-fts-query-semantics.md) | Long templated questions under `websearch_to_tsquery` (AND) may match almost nothing | 3.1, 3.9 | open | hypothesis |
+| [F-002](findings/F-002-fts-query-semantics.md) | Long templated questions under `websearch_to_tsquery` (AND) match almost nothing: no rows for 84% of dev queries. S1 uses an OR over the lexemes instead (ADR 0009) | 3.1, 3.9 | resolved | measured |
 | [F-003](findings/F-003-few-clusters-bootstrap-coverage.md) | Cluster bootstrap on a small CI subset may under-cover | 4.2, 4.5, 4.6 | open | hypothesis |
 | [F-004](findings/F-004-ceiling-effect-per-document-retrieval.md) | Per-document retrieval may saturate recall@5, leaving no power. S2 on dev: recall@5 0.489, so no ceiling for S2; recheck S4 in 3.9 | 1.8, 2.10, 3.9, 4.6, 8.5 | refuted for S2 | measured (S2) |
 | [F-005](findings/F-005-labels-must-attach-to-frozen-answers.md) | Labels must key on frozen answer text; there is only one labeler | 6.3, 6.5, 7.2, 9.5 | open | read |
@@ -116,6 +117,7 @@ Open one only if **Affects** lists your step. Newest last.
 | [F-008](findings/F-008-cuad-facts.md) | CUAD measured: 67.9% of pairs unanswerable (design said over a third); 6,702 answerable pairs; skewed category mix | 1.8, 2.x, 4.6, 6.x | confirmed | measured |
 | [F-009](findings/F-009-prior-art-check.md) | Prior art checked: gate, false-alarm/power and span gold are novel in sources checked; judge-human kappa is not (TruLens, Langfuse have it); wording needs your decision | 1.1, 9.x, README | confirmed (wording pending) | read |
 | [F-010](findings/F-010-cuad-duplicate-contract.md) | One CUAD contract appears twice (both dev); the copies' labels differ in 2 of 41 categories, so some "no answer" labels are missed clauses | 2.6, 4.1, 4.2, 5.8, 7.x | confirmed | measured |
+| [F-011](findings/F-011-fts-beats-dense-on-cuad-dev.md) | S1 (Postgres FTS) beats S2 (dense) on dev: recall@5 0.560 vs 0.489, ahead in 29 of 41 categories; no CI yet, and S1's ranking function was tuned on dev | 3.2, 3.3, 3.9, 4.10, 8.5 | confirmed (dev, provisional) | measured |
 
 F-001 to F-007 come from reading the docs while writing this plan; their hypotheses are things to check, not facts. F-008 (CUAD facts) is measured; F-009 (prior art) is read from public docs and papers on 2026-10-19.
 
@@ -133,7 +135,7 @@ Write each ADR when the decision is made (Design §12). Statuses: `planned`, `ac
 | 0006 | Binary per-criterion judge verdicts | 7.8 | planned |
 | 0007 | Paired, document-clustered bootstrap and the three-outcome gate | 4.9 | planned |
 | 0008 | Caching and determinism strategy | 7.8 | planned |
-| 0009 | Postgres FTS naming and the BM25 question (and S1 query construction) | 1.9, 3.1 | accepted (naming); query construction added in 3.1 |
+| 0009 | Postgres FTS naming and the BM25 question; S1 query construction (OR over lexemes, `ts_rank`, no GIN index) | 1.9, 3.1 | accepted |
 | 0010 | Baseline management in CI | 4.9, 8.2 | planned |
 | 0011 | Local embedding model bge-small-en-v1.5 via ONNX Runtime (not sentence-transformers/PyTorch) | 2.5 | accepted |
 | 0012 | Hosted embedding model for the comparison: pinning, cost, determinism, caching | 4.10 | planned |
@@ -169,3 +171,4 @@ Append one line per structural change to the plan. Newest last.
 - 2026-10-28: Steps 2.6 (ingest) and 2.7 (service) done; a chunker bug from 2.4 fixed (note under 2.4); finding F-010 (duplicate CUAD contract); stray blank line removed from the findings table so F-008 and F-009 render as rows. Handoff section refreshed.
 - 2026-10-28: Steps 2.8 (ADR 0002: exact search, no HNSW) and 2.10 (first S2 baseline, results ledger) done; Phase 2 exit criterion met. F-004 refuted for S2; F-008 carries a measured note on per-category results.
 - 2026-10-28: After commit b0b3aea: CI result recorded; S2 baseline rerun on the clean commit (same values) and the results-ledger row repointed to it; notes from Phase 2 added to Phase 3 steps; stale state text fixed in the README status, the coding skill (wire models live in `contract.py`) and F-007.
+- 2026-10-28: Step 3.1 done (S1, Postgres FTS): migration 0003, ADR 0009 completed, F-002 resolved, finding F-011 added (S1 beats S2 on dev), an S1 row in the results ledger, notes under 3.2, 3.8, 3.9 and 8.5, and the coding skill's FTS rule (DB-HIGH-2) updated. Handoff section refreshed.
