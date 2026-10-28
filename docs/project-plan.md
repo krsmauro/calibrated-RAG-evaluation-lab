@@ -21,8 +21,8 @@ Status values: `todo`, `in progress`, `blocked`, `done`. Update the row when a s
 | Phase | Design week | Status | Next step | File |
 | --- | --- | --- | --- | --- |
 | 0 Pre-flight | none | done (exit criterion met) | 0.3, 0.4, 0.6 done; D1 to D5 answered; 0.5 (API key and spend limit, owner: user) deferred to Phase 5 with D1 | [phase-0](phases/phase-0-preflight.md) |
-| 1 Eval spec and skeleton | 1 | in progress | 1.1 to 1.4 and 1.6 to 1.11 done; 1.5 blocked on a push and green run; 1.12 (clean-clone exit check) needs your commit; F-009 wording decision pending | [phase-1](phases/phase-1-spec-and-skeleton.md) |
-| 2 CUAD, C1, dense retrieval, metrics | 2 | todo | 2.1 | [phase-2](phases/phase-2-cuad-ingest-and-dense-retrieval.md) |
+| 1 Eval spec and skeleton | 1 | done (exit criterion met 2026-10-19; CI green, clean-clone check passed) | F-009 wording decision for Design §3 and the README is still pending with the user | [phase-1](phases/phase-1-spec-and-skeleton.md) |
+| 2 CUAD, C1, dense retrieval, metrics | 2 | in progress | 2.1, 2.2, 2.3, 2.9 done; 2.4/2.5 (chunk size, embedding model) need your choice; then 2.6, 2.7, 2.8, 2.10, 2.11 | [phase-2](phases/phase-2-cuad-ingest-and-dense-retrieval.md) |
 | 3 Strategies, C2, run store | 3 | todo | 3.1 | [phase-3](phases/phase-3-strategies-and-run-store.md) |
 | 4 Stats and retrieval gate | 4 | todo | 4.1 | [phase-4](phases/phase-4-stats-and-retrieval-gate.md) |
 | 5 Answers and LLM client | 5 | todo | 5.1 | [phase-5](phases/phase-5-answers-and-llm-client.md) |

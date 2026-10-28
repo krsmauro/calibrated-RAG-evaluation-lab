@@ -3,6 +3,7 @@
 **Goal:** write down every decision that would otherwise produce an indefensible number, and get a repo where `make up` works from a clean clone.
 **Entry:** Phase 0 done, or at least D5 (package name, answered) in the plan.
 **Exit criterion:** `make up` works from a clean clone; CI green on the empty app; `docs/eval-spec.md` written; first ADRs written.
+**Status (2026-10-19):** all steps done; exit criterion met.
 
 Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 
@@ -45,13 +46,17 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
   Evidence: against the real Postgres, `alembic downgrade base` left only `alembic_version` and no vector extension; then `upgrade head`, `downgrade base`, `upgrade head` all succeeded and `alembic current` printed `0001 (head)`. `grep -rn "os.environ\|os.getenv" src/ migrations/` returns nothing. Constraints checked by hand in a rolled-back transaction: a valid chunk is accepted; a duplicate chunk, a text length that differs from `end-start`, an empty span and a duplicate `(corpus, external_id)` are all rejected. `make test` 4 passed; ruff, format check and pyright (strict on `src/`) clean.
   Files: `src/ragcalibrate/config.py`, `alembic.ini`, `migrations/{env.py,script.py.mako,versions/0001_baseline.py}`, `tests/unit/test_config.py`, `pyproject.toml`, `uv.lock`, `.env.example`, `Makefile`.
   Deviations: the `chunks.embedding` column (and its model id) is not in this migration: its dimension depends on the embedding model, chosen in step 2.5, so Phase 2 adds it with that migration. The ids are `bigint` identity columns, and `documents` is unique on `(corpus, external_id)` with `sha256` stored but not unique. `chunks` has a `char_length(text) = end_char - start_char` check and relies on its unique index for the per-document lookup instead of a separate btree. Line length set to 100 in ruff. One `pyright: ignore` in `load_settings()` (pyright mis-reads pydantic-settings fields as required arguments). Offline (SQL-script) Alembic mode is not supported on purpose. Integration test of the migration is not written yet (testcontainers arrives with the first integration test).
-#### 1.5 [!] CI workflow
+#### 1.5 [x] CI workflow
 - **Do:** GitHub Actions workflow running lint, pyright and unit tests on every PR, with a Postgres service for integration tests later. Least-privilege `permissions:`. Never `pull_request_target`.
 - **Verify:** workflow file passes `actionlint` if available; first run is green on the empty app. (Needs the user to push; the agent cannot. Mark `[!]` blocked-on-user until the user confirms the run is green.)
 - **Refs:** Design §8.5 (fork PRs), §9.
 - Claimed: Claude (session 6137b804), 2026-10-19
 - **Blocked on the user:** the workflow is written and passes `actionlint`; it needs a push, then confirmation that the first run is green. Unblocks when the user pushes and reports the run result.
   Written: `.github/workflows/ci.yml` with four jobs (lint: ruff, format, pyright; test: `make test`; migrations: `make up` then `alembic upgrade head`, `downgrade base`, `upgrade head` on the Compose Postgres; secrets: gitleaks over full history). `permissions: contents: read`, triggers `pull_request` and `push` to `main` only (never `pull_request_target`), all three third-party actions pinned to commit SHAs with the tag in a comment (checkout v7.0.1, setup-uv v10.3.0, gitleaks-action v3.0.0; SHAs from the GitHub API on 2026-10-19).
+- **Done:** 2026-10-19, Claude. The user pushed; run 39297357963 on `main` (push) finished green in 33s.
+  Evidence: `gh run view 39297357963 --json jobs`: lint, migrations, test and secrets (gitleaks) all `success`.
+  Files: none new.
+  Deviations: only a `push` run was observed; the `pull_request` trigger and fork behaviour of gitleaks are still untested.
   Checked locally: `actionlint` clean, YAML check passes, and each command in the lint, test and migrations jobs was run locally. Not checked: any run on GitHub; the gitleaks action in particular (its licence terms for your account type and its behaviour on forks) is untested.
 #### 1.6 [x] Structured logging skeleton
 - **Do:** JSON logs with `run_id` and `query_id` fields available via contextvars. No `print`.
@@ -119,6 +124,10 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
   Files: none.
   Deviations: the rules in the files were written before any code existed and have only been checked against steps 1.2 to 1.6. Later phases amend them when they find a mismatch; the Python-lane testing and architecture rules (import-linter, testcontainers) are untested until Phases 2 and 3.
 
-#### 1.12 [ ] Phase exit check
+#### 1.12 [x] Phase exit check
 - **Do:** clone the repo to a scratch directory (outside the project) and run `make up`, `make lint`, `make test`.
 - **Verify:** all pass from the clean clone. Record the commands and outcome in the Done note.
+- **Done:** 2026-10-19, Claude. Cloned `origin/main` into a scratch directory outside the project and ran `uv sync --frozen`, `make lint` and `make test` there.
+  Evidence: ruff check and format clean (16 files), pyright 0 errors, 9 passed. CI on the same commit is green (see 1.5).
+  Files: none.
+  Deviations: `make up` was not re-run in the clone. The Compose project name is fixed to `ragcalibrate`, so a second `up` from another directory would collide with the stack already running from the working copy (same project, same port 5433). The CI `migrations` job runs `make up` plus upgrade/downgrade/upgrade from a clean checkout and passed, which covers it.

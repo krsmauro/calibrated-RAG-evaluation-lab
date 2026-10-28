@@ -1,0 +1,18 @@
+{
+  "source_sha256": "f8161d18bea4e9c05e78fa6dda61c19c846fb8087ea969c172753bc2f45b999a",
+  "files": {
+    "cuad-dev.gold.jsonl": "fc2a579175834ff6d50595aa4f9046f09453ce10e53a50ac53adcdc6a820c878",
+    "cuad-dev.queries.jsonl": "7064ebf350466eb4c2eb8ea527cfad0af18b42bac6c72aa1a2bee77a86746056",
+    "cuad-test.gold.jsonl": "e83de728e215683e0613ebfb592ddca704c462dca691685ffab808bbc2336862",
+    "cuad-test.queries.jsonl": "d6399044e9c58a91eab4fb04b32a4798fba1de26ffd3efcdf3767b94231e7772"
+  },
+  "counts": {
+    "dev.documents": 408,
+    "dev.queries": 16728,
+    "dev.answerable": 5458,
+    "test.documents": 102,
+    "test.queries": 4182,
+    "test.answerable": 1244
+  },
+  "evalset_hash": "34987d1bf1ea800d52ce086a2e953db2c2745d717e08cca7701e9989fb8241b8"
+}

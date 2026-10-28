@@ -15,3 +15,6 @@ dist/
 
 # Raw datasets are downloaded by scripts/fetch_cuad.py, never committed
 data/
+
+# Eval-set files are generated deterministically by `make evalsets`; the manifest with their hashes is committed
+evalsets/*.jsonl
