@@ -20,9 +20,10 @@ service/
 ├── deps.py         FastAPI dependencies (db pool, models, settings) — the DI seam
 ├── routes/         Thin: validate (Pydantic), call one function, shape the response
 ├── retrieval/      strategies (fts, dense, rrf, rerank) — plain async functions/classes, no FastAPI imports
-├── answering/      prompt building, generator call, citation mapping
-└── models.py       wire models shared with the harness adapter (single definition)
+└── answering/      prompt building, generator call, citation mapping
 ```
+
+The wire models shared with the harness adapter (single definition) live outside `service/`, in `ragcalibrate/contract.py`: the import-linter contract forbids `harness` from importing anything in `service`.
 
 ## ARCH-CRITICAL-1 — `app.py` is a manifest, not a monolith
 

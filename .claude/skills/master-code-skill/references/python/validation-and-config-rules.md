@@ -23,7 +23,7 @@ Between functions you own, **type hints + pyright are the proof**. Wrapping ever
 
 ## VAL-CRITICAL-3 — One definition per wire shape; derive, don't mirror
 
-The `/retrieve` and `/answer` request/response models live in one module (e.g. `ragcalibrate/models.py`) imported by both the service and the harness HTTP adapter. Derive related shapes from it rather than hand-writing a parallel class. Two copies = silent mis-scoring when one drifts.
+The `/retrieve` and `/answer` request/response models live in one module (`ragcalibrate/contract.py`) imported by both the service and the harness HTTP adapter. Derive related shapes from it rather than hand-writing a parallel class. Two copies = silent mis-scoring when one drifts.
 
 ## VAL-HIGH-1 — Be strict where silence is dangerous
 

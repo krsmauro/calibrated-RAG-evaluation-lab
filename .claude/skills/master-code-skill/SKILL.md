@@ -15,7 +15,7 @@ A single entry point for all coding work in this repo. Layers:
 
 Keep this file lean. Detailed rules live in `references/`.
 
-> **Provenance**: adapted from the `master-code-skill` in `pivotia-app` (TypeScript monorepo) and `Legalware-app` (Firebase + React). Karpathy layer kept as is; frontend, mobile and i18n lanes dropped (no UI here); backend rules rewritten for Python; eval-integrity lane added. **The repo is early-stage** (Phase 1 of `docs/project-plan.md`): the skeleton, settings (`config.py`, with `load_settings()` as the only place `Settings` is built), JSON logging (`logs.py`), the Alembic baseline and the CUAD scripts exist; the other packages are empty placeholders. The layout below comes from `docs/design/project-design.md` §13. If the real tree differs, trust the tree and update this file. Project conventions already settled: ruff line length 100 with Markdown excluded from `ruff format`, pyright strict on `src/`, Python 3.12, Postgres on 127.0.0.1:5433 via Compose.
+> **Provenance**: adapted from the `master-code-skill` in `pivotia-app` (TypeScript monorepo) and `Legalware-app` (Firebase + React). Karpathy layer kept as is; frontend, mobile and i18n lanes dropped (no UI here); backend rules rewritten for Python; eval-integrity lane added. **State (2026-10-28, Phase 2 done; current status in `docs/project-plan.md`)**: settings (`config.py`, with `load_settings()` as the only place `Settings` is built), JSON logging (`logs.py`), Alembic migrations, `corpora/`, `ingest/`, `service/` (dense `/retrieve`), the wire models in `ragcalibrate/contract.py`, and `harness/` (retrieval metrics, HTTP adapter, minimal `run`) have code; `llm/`, `stats/` and `report/` are empty placeholders. The layout below comes from `docs/design/project-design.md` §13. If the real tree differs, trust the tree and update this file. Project conventions already settled: ruff line length 100 with Markdown excluded from `ruff format`, pyright strict on `src/`, Python 3.12, Postgres on 127.0.0.1:5433 via Compose.
 
 ---
 
@@ -24,6 +24,7 @@ Keep this file lean. Detailed rules live in `references/`.
 ```
 calibrated-RAG-evaluation-lab/
 ├── src/ragcalibrate/
+│   ├── contract.py wire models for /retrieve and /answer: the only module harness and service share
 │   ├── corpora/    CUAD / QASPER adapters → documents, queries, gold spans
 │   ├── ingest/     versioned chunkers, embedding, bulk load into Postgres
 │   ├── service/    FastAPI app (system under test): /retrieve /answer /healthz /readyz
@@ -41,7 +42,7 @@ calibrated-RAG-evaluation-lab/
 
 **Two databases on purpose** (Design §5.8): Postgres = corpus index (part of the system under test); SQLite = run results (the measuring instrument). The LLM cache is a third, separate SQLite file. Don't merge them.
 
-**Dependency direction is one-way**: `stats` and `report` depend on nothing in `ragcalibrate` that does I/O. `harness` talks to the SUT only over HTTP. `service` never imports `harness` or reads `evalsets/`. See `references/python/architecture-rules.md`.
+**Dependency direction is one-way**: `stats` and `report` depend on nothing in `ragcalibrate` that does I/O. `harness` talks to the SUT only over HTTP. `service` never imports `harness` or reads `evalsets/`. import-linter enforces that `harness` and `service` never import each other (`make lint`); the wire models they both need live in `ragcalibrate/contract.py`. See `references/python/architecture-rules.md`.
 
 ---
 

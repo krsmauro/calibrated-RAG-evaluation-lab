@@ -3,7 +3,7 @@
 **Goal:** a reproducible baseline number for dense retrieval (S2) on the CUAD dev set, with the offset and metric machinery proven by tests.
 **Entry:** Phase 1 done (needs `eval-spec.md` for the relevance rule and metric definitions).
 **Exit criterion:** offset property tests and metric fixture tests pass; one command reproduces dev recall@5 and MRR for S2.
-**Exit criterion met 2026-10-28:** all steps 2.1 to 2.11 done; offset property tests and metric fixture tests pass; `uv run ragcalibrate run` (with `make serve`) reproduced dev recall@5 0.489 and MRR@10 0.393 twice, identical per query (2.10). CI for the 2.6 to 2.10 changes is untested until the user pushes.
+**Exit criterion met 2026-10-28:** all steps 2.1 to 2.11 done; offset property tests and metric fixture tests pass; `uv run ragcalibrate run` (with `make serve`) reproduced dev recall@5 0.489 and MRR@10 0.393 twice, identical per query (2.10). Committed as b0b3aea; CI green there (lint with import-linter, unit and property tests, 19 integration tests).
 
 Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
 
@@ -111,6 +111,7 @@ Step format and update rules: see "Agent protocol" in `docs/project-plan.md`.
   Evidence: S2 on CUAD dev, 5,458 answerable queries in 408 documents, 15 s: recall@1 0.227, @3 0.395, @5 0.489, @10 0.631; Hit@1 0.275, @5 0.550, @10 0.691; MRR@10 0.393 (row in `docs/results.md`). Two runs: manifests (apart from the time), summaries, per-category tables and all 5,458 ranked lists with scores identical. `tests/unit/test_run.py` (hand-computed scoring of one query; means exclude None and split by category) and two integration tests (the adapter against the real app, including a 404 problem; query order kept at concurrency 4). Whole suite: 63 unit and property, 19 integration; lint clean.
   Files: `src/ragcalibrate/harness/{adapter,run,cli}.py`, `tests/unit/test_run.py`, `tests/integration/test_service.py`, `pyproject.toml` (`ragcalibrate` console script), `.gitignore` (`runs/`), `README.md`, `docs/results.md`, `docs/findings/F-004-ceiling-effect-per-document-retrieval.md` and `F-008-cuad-facts.md` (measured notes).
   Deviations: (1) No 95% CI yet: the document-clustered bootstrap is step 4.1, so the ledger row gives n and documents only. (2) Character precision and recall at a token budget are not reported: the tokenizer for that metric is chosen in step 4.9 (2.9's Deviations). (3) The run was made on a tree with uncommitted changes (`git_dirty: true`); rerun after the commit to record a clean SHA. (4) No retries and no resume: a failed request fails the run, by design until step 3.7.
+- Note (2026-10-28, after commit b0b3aea): rerun on the clean commit (`git_dirty: false`, `runs/2026-10-28T163205Z.json`, local only): the summary matches the recorded values (recall@5 0.4885, MRR@10 0.3926, all other k the same). Per-query lists were not compared, because the two earlier run files were not kept. The results-ledger row now cites b0b3aea.
 
 #### 2.11 [x] Write `references/eval/eval-integrity-rules.md`
 - **Do:** short checklist for leakage, ground truth, metric definitions, manifests, abstention, drawn from Design §5 and the skill's inline EVAL rules.
