@@ -35,6 +35,7 @@ Agents prepare branches and commits-ready changes only. They never push or open 
 - **Verify:** gate returns Fail with the CI shown in the comment (after the user pushes and opens the PR).
 - **Refs:** Design §11 (demo PR idea).
 - Note (2026-10-28, from 3.1): the configuration lives in two places that must change together: a new migration that rebuilds the generated column `chunks.tsv` (migration 0003 builds it with `english`) and `FTS_CONFIG` in `service/retrieval.py`. The integration test `test_fts_parses_queries_with_the_configuration_the_column_was_built_with` fails if only one changes. S1 relies on exact terms (finding F-011), so the change is likely to move its metric, but measure it.
+- Note (2026-10-28, from 3.3): another candidate, perhaps a better story: switching the served strategy from hybrid (S3) to rerank (S4), "add a cross-encoder reranker". Reviewers expect a reranker to help, and on CUAD dev with the templated question it lowers recall@5 (finding F-012, numbers in `docs/results.md`). Measure the drop on the CI subset first, as above; if decision D7 changes the question text, S4 is likely to help instead and stops being a regression.
 
 #### 8.6 [ ] Demo PR B: benign change
 - **Do:** a harmless change (for example refactor, comment, or an equivalent-behaviour tweak) that must Pass.

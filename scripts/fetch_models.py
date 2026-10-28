@@ -1,8 +1,9 @@
-"""Download the local embedding model files, pinned to a Hugging Face commit, and verify them.
+"""Download the local model files, each pinned to a Hugging Face commit, and verify them.
 
-The pins (repo, commit, sizes, sha256) live in ragcalibrate.ingest.embedding so the code that
-loads the model and the code that downloads it cannot disagree. Files go to data/models/
-(gitignored). Idempotent: files already present and correct are not downloaded again.
+Two models: the embedding model (ADR 0011) and S4's cross-encoder (ADR 0013). The pins (repo,
+commit, sizes, sha256) live in the modules that load the models, so the code that loads a model
+and the code that downloads it cannot disagree. Files go to data/models/ (gitignored).
+Idempotent: files already present and correct are not downloaded again.
 Usage: python -I scripts/fetch_models.py
 """
 
@@ -11,7 +12,11 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from ragcalibrate.ingest.embedding import DEFAULT_MODEL_DIR, MODEL_FILES, MODEL_REPO, MODEL_REVISION
+from ragcalibrate.ingest import embedding
+from ragcalibrate.service import rerank
+
+# Each module pins its model: MODEL_REPO, MODEL_REVISION, MODEL_FILES and DEFAULT_MODEL_DIR.
+MODELS = (embedding, rerank)
 
 
 def sha256(path: Path) -> str:
@@ -19,20 +24,21 @@ def sha256(path: Path) -> str:
 
 
 def main() -> int:
-    for name, (size, digest) in MODEL_FILES.items():
-        dest = DEFAULT_MODEL_DIR / name
-        if not dest.exists():
-            url = f"https://huggingface.co/{MODEL_REPO}/resolve/{MODEL_REVISION}/{name}"
-            print(f"downloading {url}")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            partial = dest.with_suffix(dest.suffix + ".part")
-            with urllib.request.urlopen(url, timeout=120) as response:
-                partial.write_bytes(response.read())
-            partial.rename(dest)
-        if dest.stat().st_size != size or sha256(dest) != digest:
-            print(f"CHECKSUM MISMATCH for {dest}: delete it and investigate before using it")
-            return 1
-        print(f"ok: {dest} ({size} bytes, sha256 {digest[:12]}...)")
+    for model in MODELS:
+        for name, (size, digest) in model.MODEL_FILES.items():
+            dest = model.DEFAULT_MODEL_DIR / name
+            if not dest.exists():
+                url = f"https://huggingface.co/{model.MODEL_REPO}/resolve/{model.MODEL_REVISION}/{name}"
+                print(f"downloading {url}")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                partial = dest.with_suffix(dest.suffix + ".part")
+                with urllib.request.urlopen(url, timeout=120) as response:
+                    partial.write_bytes(response.read())
+                partial.rename(dest)
+            if dest.stat().st_size != size or sha256(dest) != digest:
+                print(f"CHECKSUM MISMATCH for {dest}: delete it and investigate before using it")
+                return 1
+            print(f"ok: {dest} ({size} bytes, sha256 {digest[:12]}...)")
     return 0
 
 

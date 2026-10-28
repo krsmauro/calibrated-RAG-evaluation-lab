@@ -15,6 +15,7 @@ from ragcalibrate.ingest.embedding import Vectors
 from ragcalibrate.service import retrieval
 from ragcalibrate.service.deps import Resources, get_resources
 from ragcalibrate.service.errors import PROBLEM_JSON, NotReady, UnknownEmbedder
+from ragcalibrate.service.rerank import rerank
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ async def retrieve(
 ) -> RetrieveResponse:
     """The k best chunks of one document for a query, with offsets into the raw text."""
     started = time.perf_counter()
+    reranker_id = None
     match body.strategy:
         case "fts":
             embedder_id = None
@@ -111,6 +113,31 @@ async def retrieve(
                     depth=body.fusion_depth,
                     k=body.k,
                 )
+        case "rerank":
+            # Narrows the types only, as above: RetrieveRequest rejects a rerank request without
+            # these with a 422.
+            if body.rrf_k is None or body.fusion_depth is None or body.rerank_depth is None:
+                raise AssertionError("RetrieveRequest let a rerank request through incomplete")
+            embedder_id, query_vector = await _embed(body, resources)
+            async with resources.pool.connection() as conn:
+                candidates = await retrieval.hybrid(
+                    conn,
+                    corpus=body.corpus,
+                    doc_id=body.doc_id,
+                    chunker_id=body.chunker_id,
+                    embedder_id=embedder_id,
+                    query=body.query,
+                    query_vector=query_vector,
+                    rrf_k=body.rrf_k,
+                    depth=body.fusion_depth,
+                    k=body.rerank_depth,
+                )
+            # Outside the connection block: the pool connection is returned before the slow,
+            # CPU-bound scoring, which runs in a worker thread, off the event loop.
+            texts = [c.text for c in candidates]
+            scores = await asyncio.to_thread(resources.rerank, body.query, texts)
+            chunks = rerank(candidates, scores, k=body.k)
+            reranker_id = resources.reranker_id
     logger.info(
         "retrieve.completed",
         extra={
@@ -122,7 +149,11 @@ async def retrieve(
         },
     )
     return RetrieveResponse(
-        strategy=body.strategy, chunker_id=body.chunker_id, embedder_id=embedder_id, chunks=chunks
+        strategy=body.strategy,
+        chunker_id=body.chunker_id,
+        embedder_id=embedder_id,
+        reranker_id=reranker_id,
+        chunks=chunks,
     )
 
 

@@ -32,7 +32,8 @@ data:
 evalsets: data
 	uv run python scripts/build_evalsets.py
 
-# Download the local embedding model (bge-small-en-v1.5), pinned to a commit and verified by sha256.
+# Download the local models, each pinned to a commit and verified by sha256: the embedding model
+# (bge-small-en-v1.5, 134 MB) and S4's cross-encoder (ms-marco-MiniLM-L6-v2, 91 MB).
 models:
 	uv run python -I scripts/fetch_models.py
 

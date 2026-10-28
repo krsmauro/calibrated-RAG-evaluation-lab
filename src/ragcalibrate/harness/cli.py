@@ -42,6 +42,10 @@ CORPUS = "cuad"
 # 30 settings, 0.7 points of recall@5 above the usual rrf_k = 60 at the same depth.
 DEFAULT_RRF_K = 10
 DEFAULT_FUSION_DEPTH = 100
+# S4's rerank depth, chosen on dev with scripts/measure_rerank.py (plan step 3.3): the best of
+# 10, 20 and 30, though every depth scores below S3 alone (finding F-012).
+DEFAULT_RERANK_DEPTH = 10
+FUSED: tuple[Strategy, ...] = ("hybrid", "rerank")
 
 
 class Manifest(BaseModel):
@@ -54,9 +58,11 @@ class Manifest(BaseModel):
     strategy: str
     chunker_id: str
     embedder_id: str | None
+    reranker_id: str | None
     k: int
     rrf_k: int | None
     fusion_depth: int | None
+    rerank_depth: int | None
     base_url: str
     n_queries: int
     n_documents: int
@@ -77,9 +83,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--split", choices=["dev"], default="dev")
     run.add_argument("--strategy", choices=get_args(Strategy), default="dense")
     run.add_argument("--chunker-id", default=DEFAULT_CHUNKER)
-    run.add_argument("--rrf-k", type=int, help=f"hybrid only (default {DEFAULT_RRF_K})")
+    run.add_argument("--rrf-k", type=int, help=f"hybrid and rerank (default {DEFAULT_RRF_K})")
     run.add_argument(
-        "--fusion-depth", type=int, help=f"hybrid only (default {DEFAULT_FUSION_DEPTH})"
+        "--fusion-depth", type=int, help=f"hybrid and rerank (default {DEFAULT_FUSION_DEPTH})"
+    )
+    run.add_argument(
+        "--rerank-depth", type=int, help=f"rerank only (default {DEFAULT_RERANK_DEPTH})"
     )
     run.add_argument("--base-url", default="http://127.0.0.1:8000")
     run.add_argument("--concurrency", type=int, default=8)
@@ -88,9 +97,12 @@ def main(argv: list[str] | None = None) -> int:
 
     rrf_k: int | None = args.rrf_k
     fusion_depth: int | None = args.fusion_depth
-    if args.strategy == "hybrid":
+    rerank_depth: int | None = args.rerank_depth
+    if args.strategy in FUSED:
         rrf_k = DEFAULT_RRF_K if rrf_k is None else rrf_k
         fusion_depth = DEFAULT_FUSION_DEPTH if fusion_depth is None else fusion_depth
+    if args.strategy == "rerank":
+        rerank_depth = DEFAULT_RERANK_DEPTH if rerank_depth is None else rerank_depth
 
     configure_logging()
     try:
@@ -103,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.concurrency,
                 rrf_k,
                 fusion_depth,
+                rerank_depth,
             )
         )
     except SutNotReady as exc:
@@ -125,6 +138,7 @@ async def _run(
     concurrency: int,
     rrf_k: int | None,
     fusion_depth: int | None,
+    rerank_depth: int | None,
 ) -> RunResult:
     async with httpx.AsyncClient(base_url=base_url, timeout=TIMEOUT) as client:
         sut = HttpSut(client)
@@ -146,10 +160,14 @@ async def _run(
             concurrency=concurrency,
             rrf_k=rrf_k,
             fusion_depth=fusion_depth,
+            rerank_depth=rerank_depth,
         )
     embedders = {r.embedder_id for r in responses}
     if len(embedders) != 1:
         raise RuntimeError(f"the service used more than one embedder in one run: {embedders}")
+    rerankers = {r.reranker_id for r in responses}
+    if len(rerankers) != 1:
+        raise RuntimeError(f"the service used more than one reranker in one run: {rerankers}")
     results = [score(r, gold_of[q.id]) for q, r in zip(queries, responses, strict=True)]
     sha, dirty = _git_state()
     return RunResult(
@@ -163,9 +181,11 @@ async def _run(
             strategy=strategy,
             chunker_id=chunker_id,
             embedder_id=embedders.pop(),
+            reranker_id=rerankers.pop(),
             k=k,
             rrf_k=rrf_k,
             fusion_depth=fusion_depth,
+            rerank_depth=rerank_depth,
             base_url=base_url,
             n_queries=len(results),
             n_documents=len({r.document_id for r in results}),
@@ -189,7 +209,8 @@ def _report(result: RunResult, out: Path) -> None:
     m = result.manifest
     lines = [
         f"{m.split} {m.strategy} {m.chunker_id} {m.embedder_id}"
-        + (f" rrf_k={m.rrf_k} fusion_depth={m.fusion_depth}" if m.strategy == "hybrid" else ""),
+        + (f" rrf_k={m.rrf_k} fusion_depth={m.fusion_depth}" if m.strategy in FUSED else "")
+        + (f" {m.reranker_id} rerank_depth={m.rerank_depth}" if m.strategy == "rerank" else ""),
         f"{m.n_queries} answerable queries, {m.n_documents} documents; "
         f"git {m.git_sha[:12]}{' (dirty)' if m.git_dirty else ''}; evalset {m.evalset_hash[:12]}",
         "",

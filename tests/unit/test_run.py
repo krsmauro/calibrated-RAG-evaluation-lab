@@ -26,6 +26,7 @@ def test_score_one_query_by_hand() -> None:
         strategy="dense",
         chunker_id="c",
         embedder_id="e",
+        reranker_id=None,
         chunks=[chunk(7, 0, 50, 0.9), chunk(8, 110, 200, 0.8), chunk(9, 305, 400, 0.7)],
     )
     result = score(response, gold)

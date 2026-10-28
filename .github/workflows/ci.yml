@@ -36,8 +36,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
-      # The chunker and embedder tests need the pinned model files (about 134 MB, sha256-checked);
-      # without them those tests skip, so a failed download fails the job here instead.
+      # The chunker, embedder and reranker tests need the pinned model files (about 225 MB,
+      # sha256-checked); without them those tests skip, so a failed download fails the job here.
       - run: make models
       - run: make test
 

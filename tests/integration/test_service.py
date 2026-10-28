@@ -5,7 +5,8 @@ Responses are parsed with the contract models, exactly as the harness will parse
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+import threading
+from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -20,17 +21,22 @@ from ragcalibrate.harness.run import retrieve_all
 from ragcalibrate.ingest.chunkers import c1_id, chunk_c1
 from ragcalibrate.ingest.embedding import EMBEDDER_ID, Embedder, load_tokenizer
 from ragcalibrate.ingest.load import embed_chunks, ingest_documents
+from ragcalibrate.service import app as service_app
 from ragcalibrate.service import routes
 from ragcalibrate.service.app import create_app
 from ragcalibrate.service.fusion import rrf
+from ragcalibrate.service.rerank import RERANKER_ID, Reranker, rerank
 from ragcalibrate.service.retrieval import FTS_CONFIG
 
-MODEL_DIR = Path(__file__).parents[2] / "data" / "models" / "bge-small-en-v1.5"
+MODELS = Path(__file__).parents[2] / "data" / "models"
+MODEL_DIR = MODELS / "bge-small-en-v1.5"
+RERANKER_DIR = MODELS / "ms-marco-MiniLM-L6-v2"
 
 pytestmark = [
     pytest.mark.anyio,
     pytest.mark.skipif(
-        not (MODEL_DIR / "onnx" / "model.onnx").exists(), reason="run `make models` first"
+        not all((d / "onnx" / "model.onnx").exists() for d in (MODEL_DIR, RERANKER_DIR)),
+        reason="run `make models` first",
     ),
 ]
 
@@ -74,6 +80,7 @@ async def client(corpus: None, database_url: str) -> AsyncIterator[httpx.AsyncCl
 
 
 HYBRID: dict[str, Any] = {"strategy": "hybrid", "rrf_k": 60, "fusion_depth": 10}
+RERANK: dict[str, Any] = HYBRID | {"strategy": "rerank", "rerank_depth": 5}
 
 
 def request(**changes: Any) -> dict[str, Any]:
@@ -149,6 +156,11 @@ async def test_concurrent_requests_give_the_same_answers_as_sequential_ones(
         ("POST", "/retrieve", request(**HYBRID, embedder_id="other"), 422, "unknown_embedder"),
         ("POST", "/retrieve", request(strategy="hybrid"), 422, "invalid_request"),
         ("POST", "/retrieve", request(rrf_k=60), 422, "invalid_request"),
+        ("POST", "/retrieve", request(**RERANK, doc_id="nope"), 404, "document_not_found"),
+        ("POST", "/retrieve", request(**RERANK, chunker_id="c9"), 404, "not_indexed"),
+        ("POST", "/retrieve", request(**RERANK, embedder_id="other"), 422, "unknown_embedder"),
+        ("POST", "/retrieve", request(**HYBRID | {"strategy": "rerank"}), 422, "invalid_request"),
+        ("POST", "/retrieve", request(**HYBRID, rerank_depth=5), 422, "invalid_request"),
         ("POST", "/retrieve", request(gold=[[0, 5]]), 422, "invalid_request"),
         ("POST", "/retrieve", request(k=101), 422, "invalid_request"),
         ("GET", "/nowhere", None, 404, "http_error"),
@@ -293,3 +305,55 @@ async def test_hybrid_is_rrf_over_the_fts_and_dense_rankings(
             c.model_copy(update={"score": 1 / (60 + rank)})
             for rank, c in enumerate(semantic.chunks[:3], start=1)
         ]
+
+
+async def test_rerank_reorders_the_hybrid_top_n_by_the_cross_encoder(
+    client: httpx.AsyncClient,
+) -> None:
+    # The reordering is unit-tested; this checks the service hands the reranker the hybrid's
+    # top rerank_depth and returns its top k, with both models' ids.
+    query = "Which state's law governs this agreement?"
+    candidates = await retrieve(client, **HYBRID, query=query, k=RERANK["rerank_depth"])
+    result = await retrieve(client, **RERANK, query=query, k=3)
+    assert (result.strategy, result.embedder_id, result.reranker_id) == (
+        "rerank",
+        EMBEDDER_ID,
+        RERANKER_ID,
+    )
+    scores = Reranker(RERANKER_DIR).score(query, [c.text for c in candidates.chunks])
+    assert result.chunks == rerank(candidates.chunks, scores, k=3)
+    clause_start, clause_end = ALPHA.index("4. Governing Law"), ALPHA.index("5. Termination")
+    best = result.chunks[0]
+    assert best.start_char < clause_end and clause_start < best.end_char
+    other = await retrieve(client, **HYBRID, query=query)
+    assert (other.reranker_id, (await retrieve(client, query=query)).reranker_id) == (None, None)
+
+
+async def test_the_reranker_is_loaded_once_and_scores_off_the_event_loop(
+    corpus: None, database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loaded: list[object] = []
+    scored_in: list[threading.Thread] = []
+
+    class CountingReranker:
+        def __init__(self) -> None:
+            loaded.append(self)
+
+        def score(self, query: str, texts: Sequence[str]) -> list[float]:
+            scored_in.append(threading.current_thread())
+            return [float(len(t)) for t in texts]
+
+    monkeypatch.setattr(service_app, "Reranker", CountingReranker)
+    monkeypatch.setenv("RAGCALIBRATE_DATABASE_URL", database_url)
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as fresh:
+            for query in ("governing law", "payment", "termination"):
+                result = await retrieve(fresh, **RERANK, query=query)
+                # The fake scores by length, so the response follows it: longest text first.
+                lengths = [len(c.text) for c in result.chunks]
+                assert lengths == sorted(lengths, reverse=True)
+    assert len(loaded) == 1
+    assert len(scored_in) == 3
+    assert threading.main_thread() not in scored_in  # the event loop runs in the main thread

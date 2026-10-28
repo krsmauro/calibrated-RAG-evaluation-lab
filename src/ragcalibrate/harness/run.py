@@ -52,6 +52,7 @@ async def retrieve_all(
     concurrency: int,
     rrf_k: int | None = None,
     fusion_depth: int | None = None,
+    rerank_depth: int | None = None,
 ) -> list[RetrieveResponse]:
     """One response per query, in the order of `queries`; at most `concurrency` in flight."""
     # Every request is built before any is sent, so a bad parameter fails once, here.
@@ -65,6 +66,7 @@ async def retrieve_all(
             k=k,
             rrf_k=rrf_k,
             fusion_depth=fusion_depth,
+            rerank_depth=rerank_depth,
         )
         for query in queries
     ]

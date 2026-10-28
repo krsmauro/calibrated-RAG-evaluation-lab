@@ -9,6 +9,8 @@ from psycopg_pool import AsyncConnectionPool
 from ragcalibrate.ingest.embedding import Vectors
 
 Embed = Callable[[Sequence[str]], Vectors]
+# (query, texts) -> one relevance score per text.
+Rerank = Callable[[str, Sequence[str]], list[float]]
 
 
 @dataclass(frozen=True)
@@ -17,6 +19,9 @@ class Resources:
     # embedder id -> its embed function. Synchronous and CPU-bound: call it via asyncio.to_thread.
     embedders: Mapping[str, Embed]
     default_embedder_id: str
+    # S4's cross-encoder. Synchronous and CPU-bound too: call it via asyncio.to_thread.
+    rerank: Rerank
+    reranker_id: str
 
 
 def get_resources(request: Request) -> Resources:

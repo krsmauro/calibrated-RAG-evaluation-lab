@@ -2,7 +2,7 @@
 
 An open-source harness that answers the question every team changing a RAG system has: **did this change make retrieval or answers better, by how much, and can I trust the judge that says so?**
 
-> **Status (2026-10-28): Phase 2 of 9 done, Phase 3 started; two provisional dev results, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (chunking and local embeddings), the retrieval service with Postgres full-text search, dense search and their fusion (`/retrieve`), the retrieval metrics and a minimal `ragcalibrate run` exist and pass lint, type checks, unit and integration tests. Reranked retrieval, the run store, the statistics and gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense and hybrid retrieval, without confidence intervals yet. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
+> **Status (2026-10-28): Phase 2 of 9 done, Phase 3 in progress; four provisional dev results, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (chunking and local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics and a minimal `ragcalibrate run` exist and pass lint, type checks, unit and integration tests. The structure-aware chunker, the run store, the statistics and gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, without confidence intervals yet. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
 
 ## Contents
 
@@ -159,14 +159,14 @@ Chunks are embedded with a **local** model and bulk-loaded with `COPY`. Ingestio
 
 ### Step 6: Retrieve
 
-The service exposes `POST /retrieve {query, corpus, doc_id, strategy, chunker_id, embedder_id?, k, rrf_k?, fusion_depth?}` and returns chunks with their offsets and scores. Four strategies:
+The service exposes `POST /retrieve {query, corpus, doc_id, strategy, chunker_id, embedder_id?, k, rrf_k?, fusion_depth?, rerank_depth?}` and returns chunks with their offsets and scores, plus the ids of the embedding model and cross-encoder it used. Four strategies:
 
 | ID | Strategy | Why it is in the table |
 | --- | --- | --- |
 | S1 | Postgres full-text search | Strong on legal text where exact terms matter ("indemnify"); dense retrieval can lose to it, so it has to be included |
 | S2 | Dense: pgvector cosine distance | The standard semantic baseline |
 | S3 | Hybrid: S1 + S2 via Reciprocal Rank Fusion | RRF needs no score normalization; its smoothing constant and the depth of each list are set on dev |
-| S4 | S3 + cross-encoder rerank of the top N | Typically the quality ceiling; its latency cost is reported next to its gain |
+| S4 | S3 + cross-encoder rerank of the top N | Usually expected to be the quality ceiling; its latency cost is reported next to its effect, which on CUAD dev is a loss (finding F-012) |
 
 Decisions inside this step:
 
@@ -175,6 +175,7 @@ Decisions inside this step:
 - **"Postgres FTS", never "BM25".** `ts_rank` does not use inverse document frequency the way BM25 does. Calling it BM25 would be a claim a reviewer can falsify.
 - **How the question becomes a full-text query (finding F-002, ADR 0009).** `websearch_to_tsquery` combines words with AND, and CUAD questions are long templated sentences ("Highlight the parts (if any) of this contract related to ... that should be reviewed by a lawyer"). Measured on dev, that AND returned no rows at all for 84% of queries. S1 instead takes an OR over the question's words (after stemming and stopword removal) and ranks with `ts_rank`. It uses the whole question as sent: cutting out CUAD's template would score higher, but it would give S1 a query rewrite that dense search does not get, and it would not work on a corpus without that template. Early dev numbers put this S1 ahead of dense search (finding F-011); that is provisional until confidence intervals and the test split exist.
 - **How hybrid fuses the two lists.** RRF gives each chunk 1 / (rrf_k + rank) from each list it appears in and adds them up, so cosine similarity and `ts_rank` never need to be put on one scale. The request carries both fusion parameters (the smoothing constant `rrf_k` and `fusion_depth`, how many chunks each side contributes), so every run records them. Both were picked on dev from 30 settings (`scripts/measure_rrf.py`): `rrf_k` 10 and depth 100. On dev the hybrid is only slightly ahead of full-text search alone, because it gains where dense search is better and gives some of that back where exact terms decide (finding F-011).
+- **What reranking does to CUAD's questions (finding F-012, ADR 0013).** S4 rescores S3's top N with a small local cross-encoder (`ms-marco-MiniLM-L6-v2`, run with ONNX Runtime like the embedding model), and N is a request parameter set on dev: 10. On dev it lowers recall@5 at every depth tried, from S3's 0.576 to 0.561 at N = 10, and costs about 100 ms more per query (median 114 ms against S3's 10 ms, one request at a time on a laptop CPU). It helps on dates and party names and hurts on most clause types. Two larger cross-encoders did worse. The cause looks like CUAD's long question template rather than the model: on dev, the same model given only the specific question (the part after "Details:") raises recall@5 by 8.6 points instead. The service still gets the question as written, for the same reason as S1: whether the eval set should ask the question a user would ask instead is an open decision in the plan (D7).
 - **One strategy per request, many arms per deployment.** Strategy and chunker are request parameters, so one running service serves every arm of an experiment.
 
 ### Step 7: Score retrieval
@@ -407,7 +408,7 @@ make up                  # start Postgres 17 + pgvector 0.8.7 on 127.0.0.1:5433
 make down                # stop it (the data volume is kept)
 make data                # download CUAD, pinned to a commit and verified by sha256
 make evalsets            # generate the hashed dev/test query and gold files from CUAD
-make models              # download the embedding model (bge-small-en-v1.5), pinned and sha256-checked
+make models              # download the embedding model and S4's cross-encoder, pinned and sha256-checked
 make lint                # ruff, ruff format check, pyright (strict on src/), import-linter
 make test                # unit and property tests
 make test-integration    # integration tests against a throwaway Postgres container (needs Docker)
@@ -416,6 +417,7 @@ make serve               # run the RAG service on 127.0.0.1:8000 (/retrieve, /he
 uv run ragcalibrate run  # with the service running: score dense retrieval on dev, write runs/<time>.json
 uv run ragcalibrate run --strategy fts   # the same for Postgres full-text search (S1)
 uv run ragcalibrate run --strategy hybrid   # the same for RRF over S1 and S2 (S3); --rrf-k, --fusion-depth
+uv run ragcalibrate run --strategy rerank   # the same for S3's top N reranked by the cross-encoder (S4); --rerank-depth
 uv run alembic upgrade head   # apply the schema (documents, chunks with their full-text column, chunk embeddings)
 uv run python -I scripts/cuad_facts.py   # reprint the CUAD measurements
 ```

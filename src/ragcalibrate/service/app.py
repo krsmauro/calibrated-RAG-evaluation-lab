@@ -1,7 +1,7 @@
 """The system under test: a FastAPI app built by `create_app` (`make serve` runs it).
 
-The lifespan opens the Postgres pool and loads the embedding model once; routes receive them
-through `deps.get_resources`. Importing this module does no work.
+The lifespan opens the Postgres pool and loads the embedding model and the cross-encoder once;
+routes receive them through `deps.get_resources`. Importing this module does no work.
 """
 
 from collections.abc import AsyncGenerator
@@ -16,6 +16,7 @@ from ragcalibrate.ingest.embedding import DEFAULT_MODEL_DIR, EMBEDDER_ID, Embedd
 from ragcalibrate.logs import configure_logging
 from ragcalibrate.service import errors, routes
 from ragcalibrate.service.deps import Resources
+from ragcalibrate.service.rerank import RERANKER_ID, Reranker
 
 POOL_SIZE = 10
 # Every database call is bounded: waiting for a connection, and each statement.
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         url = load_settings().database_url.get_secret_value()
         embedder = Embedder(DEFAULT_MODEL_DIR)
+        reranker = Reranker()
         async with AsyncConnectionPool(
             url,
             connection_class=AsyncConnection,
@@ -40,7 +42,11 @@ def create_app() -> FastAPI:
             # Fail at startup, with a readable error, if the database cannot be reached at all.
             await pool.wait(timeout=POOL_TIMEOUT_S)
             app.state.resources = Resources(
-                pool=pool, embedders={EMBEDDER_ID: embedder.embed}, default_embedder_id=EMBEDDER_ID
+                pool=pool,
+                embedders={EMBEDDER_ID: embedder.embed},
+                default_embedder_id=EMBEDDER_ID,
+                rerank=reranker.score,
+                reranker_id=RERANKER_ID,
             )
             yield
 
