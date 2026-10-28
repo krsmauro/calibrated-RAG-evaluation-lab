@@ -1,9 +1,9 @@
 # F-004: Per-document retrieval may saturate recall@5
 
-- **Status:** open
+- **Status:** refuted for S2 (measured 2026-10-28, step 2.10); still to check for S4 in 3.9
 - **Date:** 2026-10-19
 - **Found by:** Claude, while writing the plan
-- **Evidence level:** hypothesis (not checked)
+- **Evidence level:** measured for S2 on CUAD dev; hypothesis for the other strategies
 - **Affects:** 1.8, 2.10, 4.6, 8.5; Design §5.1, §8.5
 
 ## Finding
@@ -17,3 +17,5 @@ If confirmed, choose the primary gating metric and k with headroom (for example 
 
 ## Resolution
 Partly addressed in `docs/eval-spec.md` §6.1 and §8 (draft, 2026-10-19): a pre-registered fallback order for the primary retrieval metric, checked on dev only, plus a note that a ceiling mainly hurts strategy comparison and improvement detection, and probably gating less than first written (hypothesis, to be measured in 4.6). Still open until dev numbers exist (step 2.10).
+
+2026-10-28, step 2.10: dense retrieval (S2, chunker C1 at 256 tokens, bge-small-en-v1.5) on all 5,458 answerable dev queries (408 contracts): Hit@1 0.275, @3 0.453, @5 0.550, @10 0.691; recall@1 0.227, @3 0.395, @5 0.489, @10 0.631; MRR@10 0.393. Far from the 0.95 threshold above, so recall@5 has ample headroom for S2. A stronger strategy (S4 with a reranker) could move closer to the ceiling, so the check is repeated on the S1 to S4 numbers in step 3.9 before eval-spec §6.1 picks the primary metric. Command and manifest: `docs/results.md`, first row.

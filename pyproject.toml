@@ -10,17 +10,22 @@ license-files = ["LICENSE"]
 # Raise it deliberately, in one commit, once those are installed and tested.
 requires-python = ">=3.12,<3.13"
 # Each dependency is added by the step whose code imports it (none ahead of need).
-# psycopg is the driver SQLAlchemy loads for Alembic; the service will use it directly later.
+# psycopg is the driver SQLAlchemy loads for Alembic; ingest and the service use it directly.
 dependencies = [
     "alembic>=1.20.0",
+    "fastapi>=0.162.0",
     "numpy>=2.5.4",
     "onnxruntime>=1.31.1",
-    "psycopg[binary]>=3.3.6",
+    "psycopg[binary,pool]>=3.3.6",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
     "sqlalchemy>=2.1.5",
     "tokenizers>=0.23.3",
+    "uvicorn>=0.54.0",
 ]
+
+[project.scripts]
+ragcalibrate = "ragcalibrate.harness.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14"]
@@ -28,11 +33,14 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "hypothesis>=6.170.13",
+    "import-linter>=2.15",
     "pre-commit>=4.7.0",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "ruff>=0.17.1",
+    "testcontainers>=4.15.0",
 ]
 
 [tool.ruff]
@@ -60,6 +68,16 @@ include = ["src", "tests"]
 # Strict on the code that produces numbers; tests only need to be consistent.
 strict = ["src"]
 pythonVersion = "3.12"
+
+[tool.importlinter]
+root_package = "ragcalibrate"
+
+# The harness reaches the system under test only over HTTP; the one thing they share is the
+# wire models in ragcalibrate.contract (Design §9, skill EVAL-CRITICAL-1).
+[[tool.importlinter.contracts]]
+name = "harness and service never import each other"
+type = "independence"
+modules = ["ragcalibrate.harness", "ragcalibrate.service"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

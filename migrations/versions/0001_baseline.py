@@ -13,7 +13,8 @@ depends_on = None
 
 # Deliberately absent, each added by the step that has the evidence for it:
 # - chunks.embedding and its model id: the embedding model (so the dimension) is chosen in
-#   plan step 2.5; a guessed vector(d) now would only force an ALTER later.
+#   plan step 2.5; a guessed vector(d) now would only force an ALTER later. (Migration 0002
+#   stores embeddings in their own table instead.)
 # - chunks.tsv and its GIN index: plan phase 3 (Postgres FTS strategy).
 # - any HNSW index: plan step 2.8 measures exact search against HNSW before adding one.
 

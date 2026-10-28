@@ -18,4 +18,5 @@ Use PostgreSQL with the pgvector extension for documents, chunks, embeddings and
 ## Consequences
 - One dependency for corpus storage, one place for `EXPLAIN ANALYZE` evidence, and full-text and vector search can be combined in SQL. The harness still sees only HTTP.
 - This is a reasoned decision, not a measured one. Nothing has been benchmarked yet. Revisit if exact search under the per-document filter turns out too slow (ADR 0002, step 2.8), or if the project adds corpus-wide retrieval, where approximate indexes matter far more.
+- 2026-10-28: ADR 0002 measured exact search under the per-document filter: 0.56 ms at the median and 1.74 ms at p95 on all 16,728 dev (contract, question) pairs, so it is not too slow.
 - pgvector and Postgres versions are pinned and recorded (0.8.7 on PostgreSQL 17.11 at the time of writing, step 1.3); a version change can change results.

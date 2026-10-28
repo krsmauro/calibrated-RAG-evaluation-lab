@@ -19,11 +19,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 # Contract-like pieces plus the awkward cases: accents, CJK (the normalizer splits each character
-# into its own word), a ligature, a character that lowercases to two code points, long words.
+# into its own word), a ligature, a character that lowercases to two code points, long words,
+# a Hangul syllable (the normalizer turns it into three tokens with the same offsets).
 PIECES = [
     "The", "Licensee", "shall", "indemnify", "Section", "2.1(a)", "ARTICLE IV.", "naïve",
     "über-cool", "日本語", "e-mail", "$1,000,000", "\n\n", "\t", "  ", "—", "x" * 30, "İstanbul",
-    "ﬁnal", "Non-Compete",
+    "ﬁnal", "Non-Compete", "탬",
 ]  # fmt: skip
 texts = st.one_of(
     st.lists(st.sampled_from(PIECES), max_size=80).map(" ".join),
@@ -102,6 +103,14 @@ def test_word_longer_than_the_window_is_split(tok: Tokenizer) -> None:
     chunks = chunk_c1(text, tok, 4, 1)
     assert chunks[0] == Chunk(0, 1, "b")
     assert "".join(c.text for c in chunks[1:]) == "x" * 60  # no gaps, no overlap inside a word
+
+
+def test_a_word_is_never_split_inside_a_character(tok: Tokenizer) -> None:
+    # Found by Hypothesis on 2026-10-28. Tokens of -x탬y-: x ##ᄐ ##ᅢ ##ᆷ ##y, one word, the
+    # middle three all at offsets (1, 2). Window 2 can only cut where tokens stop sharing a
+    # character; the syllable stays whole although its 3 tokens exceed the window.
+    assert chunk_c1("x탬y", tok, 2, 0) == [Chunk(0, 1, "x"), Chunk(1, 2, "탬"), Chunk(2, 3, "y")]
+    assert chunk_c1("탬", tok, 1, 0) == [Chunk(0, 1, "탬")]
 
 
 def test_empty_and_whitespace_text_give_no_chunks(tok: Tokenizer) -> None:

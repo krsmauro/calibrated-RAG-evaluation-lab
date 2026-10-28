@@ -18,3 +18,6 @@ data/
 
 # Eval-set files are generated deterministically by `make evalsets`; the manifest with their hashes is committed
 evalsets/*.jsonl
+
+# Run results from `ragcalibrate run` (regenerable; the SQLite run store replaces them in phase 3)
+runs/

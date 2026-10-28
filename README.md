@@ -49,10 +49,11 @@ The system under test is a small but real hybrid-retrieval RAG service (FastAPI,
 | `scripts/`, `Makefile`, `docker-compose.yml` | Dataset download and measurement scripts; the one-command entry points; the Postgres and pgvector stack |
 | `.claude/skills/master-code-skill/` | Coding rules for AI agents working in this repo |
 
-Code layout. The packages below exist; only `config.py` and `logs.py` have code so far, and each subpackage is an empty placeholder with a one-line docstring until its phase:
+Code layout. `corpora`, `ingest`, `service` (`/retrieve` with dense search so far) and the retrieval metrics in `harness` have code; `llm`, `stats` and `report` are empty placeholders until their phase:
 
 ```text
 src/ragcalibrate/
+├── contract.py  the HTTP request/response models, the only code harness and service share
 ├── corpora/   CUAD and QASPER adapters: documents, queries, gold spans
 ├── ingest/    versioned chunkers, embedding, bulk load into Postgres
 ├── service/   FastAPI app, the system under test: /retrieve, /answer
@@ -60,8 +61,8 @@ src/ragcalibrate/
 ├── harness/   runner, HTTP adapter, metrics, judge, SQLite run store, CLI
 ├── stats/     bootstrap, kappa, gate decision: pure functions, no I/O
 └── report/    Markdown/HTML reports, PR comment rendering
-migrations/ (Alembic, baseline exists)  tests/  scripts/
-planned, not yet created: evalsets/ configs/ action/
+migrations/ (Alembic)  evalsets/ (hashes; files generated)  tests/  scripts/
+planned, not yet created: configs/ action/
 ```
 
 ---
@@ -150,7 +151,7 @@ Chunkers are versioned (`chunker_id`), and several chunkings of the same corpus 
 
 ### Step 5: Embed and load into Postgres
 
-Chunks are embedded with a **local** model and bulk-loaded with `COPY`. Ingestion is idempotent, keyed on a content hash, so re-running it is a no-op. The Postgres database holds documents and chunks only.
+Chunks are embedded with a **local** model and bulk-loaded with `COPY`. Ingestion is idempotent and resumable: a document is identified by its dataset id and its content hash is checked, so re-running is a no-op, an interrupted run continues where it stopped, and changed text is refused rather than overwritten. The Postgres database holds documents, chunks and chunk embeddings only.
 
 - **Why local embedding and reranking models**: retrieval evals become free, effectively deterministic, and runnable in CI with no API keys. Hosted models can be added later as extra strategies.
 - **Why Postgres with pgvector rather than a vector database**: one system gives vector search, full-text search, transactions, migrations and filters by document. For a corpus of this size a dedicated vector DB adds an operational dependency and nothing measurable (decision to be recorded in ADR 0001).
@@ -158,7 +159,7 @@ Chunks are embedded with a **local** model and bulk-loaded with `COPY`. Ingestio
 
 ### Step 6: Retrieve
 
-The service exposes `POST /retrieve {query, doc_id, strategy, chunker_id, k}` and returns chunks with their offsets and scores. Four strategies:
+The service exposes `POST /retrieve {query, corpus, doc_id, strategy, chunker_id, embedder_id?, k}` and returns chunks with their offsets and scores. Four strategies:
 
 | ID | Strategy | Why it is in the table |
 | --- | --- | --- |
@@ -170,7 +171,7 @@ The service exposes `POST /retrieve {query, doc_id, strategy, chunker_id, k}` an
 Decisions inside this step:
 
 - **Retrieval is per contract, not corpus-wide.** CUAD questions are asked about one contract ("Highlight the parts of this contract related to Governing Law"). Asked across all 510 contracts, that query has about 510 right answers and recall@5 is meaningless. So every query carries a `doc_id` and retrieval is filtered to that contract's chunks. This also matches real use: "find the termination clause in *this* agreement."
-- **Exact search, not an approximate index, under that filter.** With a per-document filter the candidate set is a few hundred chunks, so exact search is fast and has perfect recall. An approximate HNSW index combined with a filter can silently return fewer than k results, because the filter is applied to the index's candidate list. The project measures both and records the numbers (ADR 0002) rather than assuming.
+- **Exact search, not an approximate index, under that filter.** With a per-document filter the candidate set is a few hundred chunks, so exact search is fast and has perfect recall. An approximate HNSW index combined with a filter can silently return fewer than k results, because the filter is applied to the index's candidate list. Measured on all 16,728 CUAD dev (contract, question) pairs (ADR 0002): exact search takes 0.56 ms at the median and always returns the true top k. With an HNSW index present, the planner chose it for the largest contract and returned no rows at all, and iterative index scans were about 34 times slower and still came back short for 120 of 408 contracts.
 - **"Postgres FTS", never "BM25".** `ts_rank` does not use inverse document frequency the way BM25 does. Calling it BM25 would be a claim a reviewer can falsify.
 - **Open question being checked (finding F-002):** `websearch_to_tsquery` combines terms with AND, and CUAD queries are long templated sentences. An AND over all of them may match almost nothing, which would make S1 look unfairly weak. How the query becomes a tsquery is a documented decision.
 - **One strategy per request, many arms per deployment.** Strategy and chunker are request parameters, so one running service serves every arm of an experiment.
@@ -406,18 +407,21 @@ make down                # stop it (the data volume is kept)
 make data                # download CUAD, pinned to a commit and verified by sha256
 make evalsets            # generate the hashed dev/test query and gold files from CUAD
 make models              # download the embedding model (bge-small-en-v1.5), pinned and sha256-checked
-make lint                # ruff, ruff format check, pyright (strict on src/)
+make lint                # ruff, ruff format check, pyright (strict on src/), import-linter
 make test                # unit and property tests
-uv run alembic upgrade head   # apply the schema (migration 0001: documents, chunks)
+make test-integration    # integration tests against a throwaway Postgres container (needs Docker)
+make ingest              # apply migrations, then chunk, embed and load all of CUAD (resumable; several minutes the first time)
+make serve               # run the RAG service on 127.0.0.1:8000 (/retrieve, /healthz, /readyz; OpenAPI at /docs)
+uv run ragcalibrate run  # with the service running: score dense retrieval on dev, write runs/<time>.json
+uv run alembic upgrade head   # apply the schema (documents, chunks, chunk embeddings)
 uv run python -I scripts/cuad_facts.py   # reprint the CUAD measurements
 ```
 
 Planned commands (none of these work yet):
 
 ```bash
-make ingest        # chunk, embed and load
 make eval          # run an experiment
-ragcalibrate run | compare | calibrate | report
+ragcalibrate compare | calibrate | report   # and the full `run` with experiment configs
 ```
 
 Contributors also need the `gitleaks` binary on their PATH for the pre-commit hook (`brew install gitleaks`), and `uv run pre-commit install` to activate the hooks.
