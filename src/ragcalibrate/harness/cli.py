@@ -38,6 +38,10 @@ EVALSETS = Path("evalsets")
 # internal: the harness names it, the service looks it up. Experiment YAML replaces this (3.7).
 DEFAULT_CHUNKER = "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
 CORPUS = "cuad"
+# S3's fusion parameters, chosen on dev with scripts/measure_rrf.py (plan step 3.2): the best of
+# 30 settings, 0.7 points of recall@5 above the usual rrf_k = 60 at the same depth.
+DEFAULT_RRF_K = 10
+DEFAULT_FUSION_DEPTH = 100
 
 
 class Manifest(BaseModel):
@@ -51,6 +55,8 @@ class Manifest(BaseModel):
     chunker_id: str
     embedder_id: str | None
     k: int
+    rrf_k: int | None
+    fusion_depth: int | None
     base_url: str
     n_queries: int
     n_documents: int
@@ -71,14 +77,32 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--split", choices=["dev"], default="dev")
     run.add_argument("--strategy", choices=get_args(Strategy), default="dense")
     run.add_argument("--chunker-id", default=DEFAULT_CHUNKER)
+    run.add_argument("--rrf-k", type=int, help=f"hybrid only (default {DEFAULT_RRF_K})")
+    run.add_argument(
+        "--fusion-depth", type=int, help=f"hybrid only (default {DEFAULT_FUSION_DEPTH})"
+    )
     run.add_argument("--base-url", default="http://127.0.0.1:8000")
     run.add_argument("--concurrency", type=int, default=8)
     run.add_argument("--out", type=Path, help="JSON result path (default: runs/<time>.json)")
     args = parser.parse_args(argv)
 
+    rrf_k: int | None = args.rrf_k
+    fusion_depth: int | None = args.fusion_depth
+    if args.strategy == "hybrid":
+        rrf_k = DEFAULT_RRF_K if rrf_k is None else rrf_k
+        fusion_depth = DEFAULT_FUSION_DEPTH if fusion_depth is None else fusion_depth
+
     configure_logging()
     result = asyncio.run(
-        _run(args.split, args.strategy, args.chunker_id, args.base_url, args.concurrency)
+        _run(
+            args.split,
+            args.strategy,
+            args.chunker_id,
+            args.base_url,
+            args.concurrency,
+            rrf_k,
+            fusion_depth,
+        )
     )
     out: Path = args.out or Path("runs") / f"{result.manifest.created_at.replace(':', '')}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -88,7 +112,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 async def _run(
-    split: Split, strategy: Strategy, chunker_id: str, base_url: str, concurrency: int
+    split: Split,
+    strategy: Strategy,
+    chunker_id: str,
+    base_url: str,
+    concurrency: int,
+    rrf_k: int | None,
+    fusion_depth: int | None,
 ) -> RunResult:
     manifest = evalsets.verify(EVALSETS)  # the files on disk are the hashed ones
     gold = [g for g in evalsets.read_gold(EVALSETS, split) if g.answerable]
@@ -106,6 +136,8 @@ async def _run(
             chunker_id=chunker_id,
             k=k,
             concurrency=concurrency,
+            rrf_k=rrf_k,
+            fusion_depth=fusion_depth,
         )
     embedders = {r.embedder_id for r in responses}
     if len(embedders) != 1:
@@ -124,6 +156,8 @@ async def _run(
             chunker_id=chunker_id,
             embedder_id=embedders.pop(),
             k=k,
+            rrf_k=rrf_k,
+            fusion_depth=fusion_depth,
             base_url=base_url,
             n_queries=len(results),
             n_documents=len({r.document_id for r in results}),
@@ -146,7 +180,8 @@ def _git_state() -> tuple[str, bool]:
 def _report(result: RunResult, out: Path) -> None:
     m = result.manifest
     lines = [
-        f"{m.split} {m.strategy} {m.chunker_id} {m.embedder_id}",
+        f"{m.split} {m.strategy} {m.chunker_id} {m.embedder_id}"
+        + (f" rrf_k={m.rrf_k} fusion_depth={m.fusion_depth}" if m.strategy == "hybrid" else ""),
         f"{m.n_queries} answerable queries, {m.n_documents} documents; "
         f"git {m.git_sha[:12]}{' (dirty)' if m.git_dirty else ''}; evalset {m.evalset_hash[:12]}",
         "",

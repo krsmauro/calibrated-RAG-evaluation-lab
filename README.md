@@ -2,7 +2,7 @@
 
 An open-source harness that answers the question every team changing a RAG system has: **did this change make retrieval or answers better, by how much, and can I trust the judge that says so?**
 
-> **Status (2026-10-28): Phase 2 of 9 done, Phase 3 started; two provisional dev results, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (chunking and local embeddings), the retrieval service with Postgres full-text search and dense search (`/retrieve`), the retrieval metrics and a minimal `ragcalibrate run` exist and pass lint, type checks, unit and integration tests. Hybrid and reranked retrieval, the run store, the statistics and gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text and dense retrieval, without confidence intervals yet. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
+> **Status (2026-10-28): Phase 2 of 9 done, Phase 3 started; two provisional dev results, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (chunking and local embeddings), the retrieval service with Postgres full-text search, dense search and their fusion (`/retrieve`), the retrieval metrics and a minimal `ragcalibrate run` exist and pass lint, type checks, unit and integration tests. Reranked retrieval, the run store, the statistics and gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense and hybrid retrieval, without confidence intervals yet. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
 
 ## Contents
 
@@ -159,13 +159,13 @@ Chunks are embedded with a **local** model and bulk-loaded with `COPY`. Ingestio
 
 ### Step 6: Retrieve
 
-The service exposes `POST /retrieve {query, corpus, doc_id, strategy, chunker_id, embedder_id?, k}` and returns chunks with their offsets and scores. Four strategies:
+The service exposes `POST /retrieve {query, corpus, doc_id, strategy, chunker_id, embedder_id?, k, rrf_k?, fusion_depth?}` and returns chunks with their offsets and scores. Four strategies:
 
 | ID | Strategy | Why it is in the table |
 | --- | --- | --- |
 | S1 | Postgres full-text search | Strong on legal text where exact terms matter ("indemnify"); dense retrieval can lose to it, so it has to be included |
 | S2 | Dense: pgvector cosine distance | The standard semantic baseline |
-| S3 | Hybrid: S1 + S2 via Reciprocal Rank Fusion | RRF needs no score normalization and has one parameter |
+| S3 | Hybrid: S1 + S2 via Reciprocal Rank Fusion | RRF needs no score normalization; its smoothing constant and the depth of each list are set on dev |
 | S4 | S3 + cross-encoder rerank of the top N | Typically the quality ceiling; its latency cost is reported next to its gain |
 
 Decisions inside this step:
@@ -174,6 +174,7 @@ Decisions inside this step:
 - **Exact search, not an approximate index, under that filter.** With a per-document filter the candidate set is a few hundred chunks, so exact search is fast and has perfect recall. An approximate HNSW index combined with a filter can silently return fewer than k results, because the filter is applied to the index's candidate list. Measured on all 16,728 CUAD dev (contract, question) pairs (ADR 0002): exact search takes 0.56 ms at the median and always returns the true top k. With an HNSW index present, the planner chose it for the largest contract and returned no rows at all, and iterative index scans were about 34 times slower and still came back short for 120 of 408 contracts.
 - **"Postgres FTS", never "BM25".** `ts_rank` does not use inverse document frequency the way BM25 does. Calling it BM25 would be a claim a reviewer can falsify.
 - **How the question becomes a full-text query (finding F-002, ADR 0009).** `websearch_to_tsquery` combines words with AND, and CUAD questions are long templated sentences ("Highlight the parts (if any) of this contract related to ... that should be reviewed by a lawyer"). Measured on dev, that AND returned no rows at all for 84% of queries. S1 instead takes an OR over the question's words (after stemming and stopword removal) and ranks with `ts_rank`. It uses the whole question as sent: cutting out CUAD's template would score higher, but it would give S1 a query rewrite that dense search does not get, and it would not work on a corpus without that template. Early dev numbers put this S1 ahead of dense search (finding F-011); that is provisional until confidence intervals and the test split exist.
+- **How hybrid fuses the two lists.** RRF gives each chunk 1 / (rrf_k + rank) from each list it appears in and adds them up, so cosine similarity and `ts_rank` never need to be put on one scale. The request carries both fusion parameters (the smoothing constant `rrf_k` and `fusion_depth`, how many chunks each side contributes), so every run records them. Both were picked on dev from 30 settings (`scripts/measure_rrf.py`): `rrf_k` 10 and depth 100. On dev the hybrid is only slightly ahead of full-text search alone, because it gains where dense search is better and gives some of that back where exact terms decide (finding F-011).
 - **One strategy per request, many arms per deployment.** Strategy and chunker are request parameters, so one running service serves every arm of an experiment.
 
 ### Step 7: Score retrieval
@@ -414,6 +415,7 @@ make ingest              # apply migrations, then chunk, embed and load all of C
 make serve               # run the RAG service on 127.0.0.1:8000 (/retrieve, /healthz, /readyz; OpenAPI at /docs)
 uv run ragcalibrate run  # with the service running: score dense retrieval on dev, write runs/<time>.json
 uv run ragcalibrate run --strategy fts   # the same for Postgres full-text search (S1)
+uv run ragcalibrate run --strategy hybrid   # the same for RRF over S1 and S2 (S3); --rrf-k, --fusion-depth
 uv run alembic upgrade head   # apply the schema (documents, chunks with their full-text column, chunk embeddings)
 uv run python -I scripts/cuad_facts.py   # reprint the CUAD measurements
 ```

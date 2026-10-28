@@ -6,6 +6,7 @@ from ragcalibrate.contract import RetrievedChunk
 from ragcalibrate.ingest.embedding import Vectors
 from ragcalibrate.ingest.load import vector_literal
 from ragcalibrate.service.errors import DocumentNotFound, NotIndexed, RagError
+from ragcalibrate.service.fusion import rrf
 
 # Exact search on purpose: every chunk of the one document is scored (at most 351 in CUAD), so
 # the top k is exact. An ANN index under a per-document filter can return fewer or different
@@ -103,6 +104,38 @@ async def fts(
         RetrievedChunk(chunk_id=chunk_id, start_char=start, end_char=end, text=text, score=score)
         for chunk_id, start, end, text, score in rows
     ]
+
+
+async def hybrid(
+    conn: AsyncConnection,
+    *,
+    corpus: str,
+    doc_id: str,
+    chunker_id: str,
+    embedder_id: str,
+    query: str,
+    query_vector: Vectors,
+    rrf_k: int,
+    depth: int,
+    k: int,
+) -> list[RetrievedChunk]:
+    """S3: the top `depth` of S1 and of S2, fused with Reciprocal Rank Fusion; k best first.
+
+    S1 may contribute fewer than `depth` chunks, or none; then the order comes from S2 alone.
+    """
+    lexical = await fts(
+        conn, corpus=corpus, doc_id=doc_id, chunker_id=chunker_id, query=query, k=depth
+    )
+    semantic = await dense(
+        conn,
+        corpus=corpus,
+        doc_id=doc_id,
+        chunker_id=chunker_id,
+        embedder_id=embedder_id,
+        query_vector=query_vector,
+        k=depth,
+    )
+    return rrf([lexical, semantic], rrf_k=rrf_k, k=k)
 
 
 async def _has_chunks(conn: AsyncConnection, corpus: str, doc_id: str, chunker_id: str) -> bool:

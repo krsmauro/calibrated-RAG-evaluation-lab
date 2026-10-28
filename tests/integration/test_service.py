@@ -22,6 +22,7 @@ from ragcalibrate.ingest.embedding import EMBEDDER_ID, Embedder, load_tokenizer
 from ragcalibrate.ingest.load import embed_chunks, ingest_documents
 from ragcalibrate.service import routes
 from ragcalibrate.service.app import create_app
+from ragcalibrate.service.fusion import rrf
 from ragcalibrate.service.retrieval import FTS_CONFIG
 
 MODEL_DIR = Path(__file__).parents[2] / "data" / "models" / "bge-small-en-v1.5"
@@ -70,6 +71,9 @@ async def client(corpus: None, database_url: str) -> AsyncIterator[httpx.AsyncCl
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 yield client
+
+
+HYBRID: dict[str, Any] = {"strategy": "hybrid", "rrf_k": 60, "fusion_depth": 10}
 
 
 def request(**changes: Any) -> dict[str, Any]:
@@ -140,6 +144,11 @@ async def test_concurrent_requests_give_the_same_answers_as_sequential_ones(
             422,
             "invalid_request",
         ),
+        ("POST", "/retrieve", request(**HYBRID, doc_id="nope"), 404, "document_not_found"),
+        ("POST", "/retrieve", request(**HYBRID, chunker_id="c9"), 404, "not_indexed"),
+        ("POST", "/retrieve", request(**HYBRID, embedder_id="other"), 422, "unknown_embedder"),
+        ("POST", "/retrieve", request(strategy="hybrid"), 422, "invalid_request"),
+        ("POST", "/retrieve", request(rrf_k=60), 422, "invalid_request"),
         ("POST", "/retrieve", request(gold=[[0, 5]]), 422, "invalid_request"),
         ("POST", "/retrieve", request(k=101), 422, "invalid_request"),
         ("GET", "/nowhere", None, 404, "http_error"),
@@ -249,3 +258,28 @@ def test_fts_parses_queries_with_the_configuration_the_column_was_built_with(
         assert conn.execute(sql, (FTS_CONFIG,)).fetchone() == (True,)
         # The check can fail: without stemming the same text gives different lexemes.
         assert conn.execute(sql, ("simple",)).fetchone() == (False,)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Which state's law governs this agreement?",  # both sides rank the chunks
+        "xylophone",  # fts returns nothing: the order is dense's alone
+    ],
+)
+async def test_hybrid_is_rrf_over_the_fts_and_dense_rankings(
+    client: httpx.AsyncClient, query: str
+) -> None:
+    # The fusion itself is unit- and property-tested; this checks the service feeds it the two
+    # rankings at fusion_depth and returns its top k, with the dense side's embedder.
+    lexical = await retrieve(client, strategy="fts", query=query, k=10)
+    semantic = await retrieve(client, query=query, k=10)
+    result = await retrieve(client, **HYBRID, query=query, k=3)
+    assert (result.strategy, result.embedder_id) == ("hybrid", EMBEDDER_ID)
+    assert result.chunks == rrf([lexical.chunks, semantic.chunks], rrf_k=60, k=3)
+    assert len(result.chunks) == 3
+    if not lexical.chunks:
+        assert result.chunks == [
+            c.model_copy(update={"score": 1 / (60 + rank)})
+            for rank, c in enumerate(semantic.chunks[:3], start=1)
+        ]

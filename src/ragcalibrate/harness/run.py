@@ -50,24 +50,32 @@ async def retrieve_all(
     chunker_id: str,
     k: int,
     concurrency: int,
+    rrf_k: int | None = None,
+    fusion_depth: int | None = None,
 ) -> list[RetrieveResponse]:
     """One response per query, in the order of `queries`; at most `concurrency` in flight."""
-    limit = asyncio.Semaphore(concurrency)
-
-    async def one(query: Query) -> RetrieveResponse:
-        request = RetrieveRequest(
+    # Every request is built before any is sent, so a bad parameter fails once, here.
+    requests = [
+        RetrieveRequest(
             query=query.text,
             corpus=corpus,
             doc_id=query.document_id,
             strategy=strategy,
             chunker_id=chunker_id,
             k=k,
+            rrf_k=rrf_k,
+            fusion_depth=fusion_depth,
         )
+        for query in queries
+    ]
+    limit = asyncio.Semaphore(concurrency)
+
+    async def one(request: RetrieveRequest) -> RetrieveResponse:
         async with limit:
             return await sut.retrieve(request)
 
     async with asyncio.TaskGroup() as group:
-        tasks = [group.create_task(one(q)) for q in queries]
+        tasks = [group.create_task(one(r)) for r in requests]
     return [t.result() for t in tasks]
 
 

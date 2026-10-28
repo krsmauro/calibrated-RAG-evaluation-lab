@@ -30,7 +30,7 @@ Design §7 specified S1 as `websearch_to_tsquery` with `ts_rank_cd`. `websearch_
 | AND: category name only, `plainto_tsquery`, `ts_rank_cd` | 87.7% | 48.2% | 0.314 | 0.343 | 0.292 | 0.33 | 0.54 |
 | OR: category name only, `ts_rank_cd` | 47.7% | 3.5% | 0.589 | 0.643 | 0.501 | 0.31 | 0.44 |
 
-For comparison, S2 (dense, same queries): recall@5 0.489, MRR@10 0.393 (`docs/results.md`). The chosen construction run through the service and harness (`uv run ragcalibrate run --strategy fts`) gives the same recall@5 0.560 and MRR@10 0.455; two runs gave identical rankings and scores.
+For comparison, S2 (dense, same queries): recall@5 0.488, MRR@10 0.393 (`docs/results.md`). The chosen construction run through the service and harness (`uv run ragcalibrate run --strategy fts`) gives the same recall@5 0.560 and MRR@10 0.455; two runs gave identical rankings and scores.
 
 GIN check (same script): with a GIN index on `tsv` created inside a rolled-back transaction, `EXPLAIN ANALYZE` for both the AND and the OR query on the largest dev contract (351 chunks) shows an index scan on `chunks_document_id_chunker_id_start_char_end_char_key` with the `@@` test as a filter; the GIN index is not used. The OR query takes 1.1 ms there.
 

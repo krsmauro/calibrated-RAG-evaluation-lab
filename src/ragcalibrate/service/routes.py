@@ -10,7 +10,8 @@ import psycopg
 from fastapi import APIRouter, Depends
 from psycopg_pool import PoolTimeout
 
-from ragcalibrate.contract import Problem, RetrievedChunk, RetrieveRequest, RetrieveResponse
+from ragcalibrate.contract import Problem, RetrieveRequest, RetrieveResponse
+from ragcalibrate.ingest.embedding import Vectors
 from ragcalibrate.service import retrieval
 from ragcalibrate.service.deps import Resources, get_resources
 from ragcalibrate.service.errors import PROBLEM_JSON, NotReady, UnknownEmbedder
@@ -80,7 +81,36 @@ async def retrieve(
                     k=body.k,
                 )
         case "dense":
-            embedder_id, chunks = await _dense(body, resources)
+            embedder_id, query_vector = await _embed(body, resources)
+            async with resources.pool.connection() as conn:
+                chunks = await retrieval.dense(
+                    conn,
+                    corpus=body.corpus,
+                    doc_id=body.doc_id,
+                    chunker_id=body.chunker_id,
+                    embedder_id=embedder_id,
+                    query_vector=query_vector,
+                    k=body.k,
+                )
+        case "hybrid":
+            # Narrows the types only: RetrieveRequest already rejects a hybrid request without
+            # them, with a 422.
+            if body.rrf_k is None or body.fusion_depth is None:
+                raise AssertionError("RetrieveRequest let a hybrid request through without fusion")
+            embedder_id, query_vector = await _embed(body, resources)
+            async with resources.pool.connection() as conn:
+                chunks = await retrieval.hybrid(
+                    conn,
+                    corpus=body.corpus,
+                    doc_id=body.doc_id,
+                    chunker_id=body.chunker_id,
+                    embedder_id=embedder_id,
+                    query=body.query,
+                    query_vector=query_vector,
+                    rrf_k=body.rrf_k,
+                    depth=body.fusion_depth,
+                    k=body.k,
+                )
     logger.info(
         "retrieve.completed",
         extra={
@@ -96,21 +126,12 @@ async def retrieve(
     )
 
 
-async def _dense(body: RetrieveRequest, resources: Resources) -> tuple[str, list[RetrievedChunk]]:
+async def _embed(body: RetrieveRequest, resources: Resources) -> tuple[str, Vectors]:
+    """The query's vector, from the requested embedder or the service's default one."""
     embedder_id = body.embedder_id or resources.default_embedder_id
     embed = resources.embedders.get(embedder_id)
     if embed is None:
         loaded = sorted(resources.embedders)
         raise UnknownEmbedder(f"{embedder_id!r} is not loaded; loaded: {loaded}")
     [query_vector] = await asyncio.to_thread(embed, [body.query])
-    async with resources.pool.connection() as conn:
-        chunks = await retrieval.dense(
-            conn,
-            corpus=body.corpus,
-            doc_id=body.doc_id,
-            chunker_id=body.chunker_id,
-            embedder_id=embedder_id,
-            query_vector=query_vector,
-            k=body.k,
-        )
-    return embedder_id, chunks
+    return embedder_id, query_vector

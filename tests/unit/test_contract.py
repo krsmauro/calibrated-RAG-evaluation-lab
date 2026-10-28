@@ -21,6 +21,7 @@ VALID: dict[str, Any] = {
     "chunker_id": "c1",
     "k": 5,
 }
+HYBRID: dict[str, Any] = {"strategy": "hybrid", "rrf_k": 60, "fusion_depth": 20}
 
 
 def test_a_request_has_no_field_that_could_carry_a_label() -> None:
@@ -34,13 +35,25 @@ def test_a_request_has_no_field_that_could_carry_a_label() -> None:
         ({"gold": [[0, 10]]}, "Extra inputs are not permitted"),
         ({"k": "5"}, "Input should be a valid integer"),
         ({"k": 0}, "greater than or equal to 1"),
-        ({"strategy": "bm25"}, "Input should be 'fts' or 'dense'"),
+        ({"strategy": "bm25"}, "Input should be 'fts', 'dense' or 'hybrid'"),
         ({"strategy": "fts", "embedder_id": "some-model"}, "fts uses no embedding model"),
+        ({"strategy": "hybrid"}, "hybrid needs rrf_k and fusion_depth"),
+        ({"strategy": "hybrid", "rrf_k": 60}, "hybrid needs rrf_k and fusion_depth"),
+        ({"rrf_k": 60}, "apply to the hybrid strategy only"),
+        ({"strategy": "fts", "fusion_depth": 10}, "apply to the hybrid strategy only"),
+        ({**HYBRID, "fusion_depth": 4}, "fusion_depth must be at least k"),
+        ({**HYBRID, "rrf_k": -1}, "greater than or equal to 0"),
+        ({**HYBRID, "fusion_depth": 101}, "less than or equal to 100"),
     ],
 )
 def test_bad_requests_are_rejected_not_coerced(change: dict[str, Any], error: str) -> None:
     with pytest.raises(ValidationError, match=error):
         RetrieveRequest.model_validate(VALID | change)
+
+
+def test_a_hybrid_request_carries_its_fusion_parameters() -> None:
+    request = RetrieveRequest.model_validate(VALID | HYBRID | {"embedder_id": "some-model"})
+    assert (request.rrf_k, request.fusion_depth) == (60, 20)
 
 
 def test_openapi_documents_the_contract_models_and_problem_errors() -> None:
