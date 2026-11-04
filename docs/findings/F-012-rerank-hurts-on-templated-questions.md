@@ -1,6 +1,6 @@
 # F-012: cross-encoder rerank (S4) lowers recall on CUAD's templated questions, and raises it on the question alone
 
-- **Status:** confirmed on dev (provisional: no confidence interval yet, test split not run)
+- **Status:** resolved: decision D7 answered on 2026-11-04 (the template stays). The measurement is confirmed on dev (provisional: no confidence interval yet, test split not run)
 - **Date:** 2026-10-28
 - **Found by:** Claude, plan step 3.3
 - **Evidence level:** measured (commands and output below)
@@ -40,9 +40,10 @@ S4 as specified, S3's top N rescored by a local cross-encoder (`ms-marco-MiniLM-
 
 ## Consequence
 - **3.3:** done as specified: the question goes to the reranker as sent. S4 is a measured regression; its latency cost is in `docs/results.md`.
-- **Decision for the user (D7 in the plan):** whether a CUAD query's text should be the question a user would ask (the "Details" part, perhaps with the category name) instead of CUAD's template. It would have to change in the eval set, for every strategy, never in the service: a service that strips CUAD's template knows the benchmark, and the README (step 6) already rejects that for S1. Costs: `docs/eval-spec.md` §1 amended, a new eval-set hash, S1 to S4 rerun, S1's query construction and S3's fusion parameters re-checked on the new text. Caveat: the motivation came from looking at dev results; if adopted, the spec and the README must say so and when, and the test split must stay untouched. Until the user decides, nothing changes.
+- **Decision for the user (D7 in the plan):** whether a CUAD query's text should be the question a user would ask (the "Details" part, perhaps with the category name) instead of CUAD's template. It would have to change in the eval set, for every strategy, never in the service: a service that strips CUAD's template knows the benchmark, and the README (step 6) already rejects that for S1. Costs: `docs/eval-spec.md` §1 amended, a new eval-set hash, S1 to S4 rerun, S1's query construction and S3's fusion parameters re-checked on the new text. Caveat: the motivation came from looking at dev results; if adopted, the spec and the README must say so and when, and the test split must stay untouched. **Answered 2026-11-04: the template stays**, so none of these costs apply.
 - **3.9 and 4.x:** S4 goes into the strategy table as measured, below S3.
 - **8.5 (demo PR A):** "add a cross-encoder reranker" is a tidy change a reviewer would approve that lowers recall@5; a candidate for the seeded regression, to be measured on the CI subset first as the step says.
 - **F-004 (ceiling):** S4 is further from a ceiling than S3.
 
 ## Resolution
+2026-11-04: the user kept CUAD's templated question as the eval set's query text (decision D7). `docs/eval-spec.md` §1 and the eval-set hash are unchanged; S4 stays in the strategy table as measured, below S3 on dev, and stays a candidate regression for demo PR A (step 8.5). The question-alone numbers above stay a diagnostic; no ablation on them is scheduled.
