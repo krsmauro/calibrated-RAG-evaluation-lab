@@ -2,7 +2,7 @@
 
 An open-source harness that answers the question every team changing a RAG system has: **did this change make retrieval or answers better, by how much, and can I trust the judge that says so?**
 
-> **Status (2026-10-28): Phase 2 of 9 done, Phase 3 in progress; four provisional dev results, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (chunking and local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics and a minimal `ragcalibrate run` exist and pass lint, type checks, unit and integration tests. The structure-aware chunker, the run store, the statistics and gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, without confidence intervals yet. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
+> **Status (2026-11-04): Phase 2 of 9 done, Phase 3 in progress; provisional dev results only, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (fixed-size and structure-aware chunking, local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics, and `ragcalibrate run`, which runs a versioned experiment config and stores every query in a SQLite run store as it goes (resumable after a crash), exist and pass lint, type checks, unit and integration tests. The statistics and gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval and for the two chunkers, without confidence intervals yet. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
 
 ## Contents
 
@@ -61,8 +61,8 @@ src/ragcalibrate/
 ├── harness/   runner, HTTP adapter, metrics, judge, SQLite run store, CLI
 ├── stats/     bootstrap, kappa, gate decision: pure functions, no I/O
 └── report/    Markdown/HTML reports, PR comment rendering
-migrations/ (Alembic)  evalsets/ (hashes; files generated)  tests/  scripts/
-planned, not yet created: configs/ action/
+migrations/ (Alembic)  evalsets/ (hashes; files generated)  configs/ (experiment YAMLs)  tests/  scripts/
+planned, not yet created: action/
 ```
 
 ---
@@ -146,7 +146,7 @@ CUAD's shipped test split stays the **test** set. A **dev** set is carved out of
 Chunkers are versioned (`chunker_id`), and several chunkings of the same corpus coexist in the database.
 
 - **C1**: fixed-size token windows with overlap. Simple baseline and the fallback.
-- **C2**: structure-aware (split on clause headings and numbering, fall back to C1 for long sections).
+- **C2**: structure-aware. Cut before each section or clause heading and each clause number, including inline ones (many CUAD contracts have no real line breaks, so "1. Term." often follows the previous sentence on the same line); pack consecutive sections into one chunk up to the window, so chunks end at headings but stay close to C1's size; fall back to C1 inside a section longer than the window.
 - **Why compare chunkers at a fixed retrieved-token budget, not at fixed k**: five 2,000-token chunks cover more of a contract than five 200-token chunks, so recall@5 alone will "prove" that bigger chunks are better. The fair comparison is recall and precision *per token retrieved*, in the style of the LegalBench-RAG paper (character-level precision and recall).
 
 ### Step 5: Embed and load into Postgres
@@ -414,10 +414,9 @@ make test                # unit and property tests
 make test-integration    # integration tests against a throwaway Postgres container (needs Docker)
 make ingest              # apply migrations, then chunk, embed and load all of CUAD (resumable; several minutes the first time)
 make serve               # run the RAG service on 127.0.0.1:8000 (/retrieve, /healthz, /readyz; OpenAPI at /docs)
-uv run ragcalibrate run  # with the service running: score dense retrieval on dev, write runs/<time>.json
-uv run ragcalibrate run --strategy fts   # the same for Postgres full-text search (S1)
-uv run ragcalibrate run --strategy hybrid   # the same for RRF over S1 and S2 (S3); --rrf-k, --fusion-depth
-uv run ragcalibrate run --strategy rerank   # the same for S3's top N reranked by the cross-encoder (S4); --rerank-depth
+uv run ragcalibrate run configs/s2-dense.yaml   # with the service running: run one experiment on dev, store it in runs/runs.sqlite, print the summary
+                                                # (S1 to S4: configs/s1-fts.yaml, s2-dense.yaml, s3-hybrid.yaml, s4-rerank.yaml)
+uv run ragcalibrate run configs/s2-dense.yaml --resume RUN_ID   # finish a run that stopped; it skips the queries already stored
 uv run alembic upgrade head   # apply the schema (documents, chunks with their full-text column, chunk embeddings)
 uv run python -I scripts/cuad_facts.py   # reprint the CUAD measurements
 ```
@@ -426,7 +425,7 @@ Planned commands (none of these work yet):
 
 ```bash
 make eval          # run an experiment
-ragcalibrate compare | calibrate | report   # and the full `run` with experiment configs
+ragcalibrate compare | calibrate | report
 ```
 
 Contributors also need the `gitleaks` binary on their PATH for the pre-commit hook (`brew install gitleaks`), and `uv run pre-commit install` to activate the hooks.

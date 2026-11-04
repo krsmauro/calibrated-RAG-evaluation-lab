@@ -19,6 +19,7 @@ dependencies = [
     "psycopg[binary,pool]>=3.3.6",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
+    "pyyaml>=6.0.3",
     "sqlalchemy>=2.1.5",
     "tokenizers>=0.23.3",
     "uvicorn>=0.54.0",
@@ -78,6 +79,24 @@ root_package = "ragcalibrate"
 name = "harness and service never import each other"
 type = "independence"
 modules = ["ragcalibrate.harness", "ragcalibrate.service"]
+
+# Statistics are pure functions over numbers (skill STAT rules): no I/O, no project state. The
+# harness reads the runs and hands the numbers over; stats never reaches back.
+[[tool.importlinter.contracts]]
+name = "stats imports nothing else from ragcalibrate"
+type = "forbidden"
+source_modules = ["ragcalibrate.stats"]
+forbidden_modules = [
+    "ragcalibrate.config",
+    "ragcalibrate.contract",
+    "ragcalibrate.corpora",
+    "ragcalibrate.harness",
+    "ragcalibrate.ingest",
+    "ragcalibrate.llm",
+    "ragcalibrate.logs",
+    "ragcalibrate.report",
+    "ragcalibrate.service",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -7,7 +7,7 @@ prefix of S3's top n is what the service returns at a smaller k (RRF sorts every
 before cutting), so this is what `/retrieve` with strategy "rerank" returns, up to float noise:
 the service scores exactly N pairs, here a prefix's scores come from batches of the longest
 list, and the same pair in a different batch moved by at most 2.4e-6 (ADR 0013). The chosen
-setting is checked through the service afterwards (`ragcalibrate run --strategy rerank`).
+setting is checked through the service afterwards (`ragcalibrate run configs/s4-rerank.yaml`).
 
 `tune --question details` or `category` (a diagnostic for finding F-012, not a strategy): the
 reranker sees only part of CUAD's templated question, the text after "Details:" or the category
@@ -38,7 +38,7 @@ from ragcalibrate.contract import RetrieveRequest, RetrieveResponse
 from ragcalibrate.corpora import evalsets
 from ragcalibrate.corpora.schema import Gold, Query
 from ragcalibrate.harness.adapter import TIMEOUT, HttpSut
-from ragcalibrate.harness.cli import DEFAULT_FUSION_DEPTH, DEFAULT_RRF_K
+from ragcalibrate.harness.manifest import load_config
 from ragcalibrate.harness.run import QueryResult, retrieve_all, score, summarize
 from ragcalibrate.ingest.chunkers import c1_id
 from ragcalibrate.ingest.embedding import EMBEDDER_ID
@@ -49,6 +49,9 @@ CHUNKER = c1_id(EMBEDDER_ID, 256, 32)
 EVALSETS = Path("evalsets")
 BASE_URL = "http://127.0.0.1:8000"
 DEPTHS = [10, 20, 30, 50]
+# S3's parameters, chosen in step 3.2: the ones configs/s3-hybrid.yaml runs.
+S3_CONFIG = load_config(Path("configs/s3-hybrid.yaml"))
+DEFAULT_RRF_K, DEFAULT_FUSION_DEPTH = S3_CONFIG.rrf_k, S3_CONFIG.fusion_depth
 SEED = 33
 # What the reranker is given, from the question as sent. Only "as-sent" is what S4 does.
 QUESTION_FORMS = {

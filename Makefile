@@ -37,11 +37,13 @@ evalsets: data
 models:
 	uv run python -I scripts/fetch_models.py
 
-# Load CUAD into Postgres (documents, C1 chunks, embeddings). Needs `make up`. Idempotent and
+# Load CUAD into Postgres (documents, chunks, embeddings). Needs `make up`. Idempotent and
 # resumable; the first full run embeds every chunk on CPU, which takes several minutes.
+# CHUNKER=c2 loads the structure-aware chunker next to C1 (plan step 3.4).
+CHUNKER ?= c1
 ingest: data models
 	uv run alembic upgrade head
-	uv run python scripts/ingest.py
+	uv run python scripts/ingest.py --chunker $(CHUNKER)
 
 # Run the RAG service (system under test) on 127.0.0.1:8000. Needs `make up` and `make ingest`.
 serve:

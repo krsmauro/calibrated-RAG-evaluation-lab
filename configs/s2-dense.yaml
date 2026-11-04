@@ -1,0 +1,7 @@
+# S2: dense retrieval on chunker C1 (Design §7): exact cosine search within the contract
+# (ADR 0002) with the local embedding model (ADR 0011).
+corpus: cuad
+split: dev
+strategy: dense
+chunker_id: "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
+embedder_id: "bge-small-en-v1.5@5c38ec7c405e"

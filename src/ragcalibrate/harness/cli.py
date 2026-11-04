@@ -1,229 +1,200 @@
 """The `ragcalibrate` command line.
 
-`ragcalibrate run` (plan step 2.10, minimal): sends the dev split's answerable queries to a
-running service (`make serve`), scores them, prints the summary and writes a JSON result with
-per-query metrics and the facts needed to regenerate it. Phase 3 replaces the JSON file with the
-SQLite run store and the flags with a versioned experiment YAML.
+`ragcalibrate run CONFIG` (plan step 3.7) runs the experiment in CONFIG, a YAML file such as
+configs/s3-hybrid.yaml, on the dev split's answerable queries against a running service (`make
+serve`). Each query's ranking and metrics go into the run store (runs/runs.sqlite, ADR 0003) as
+soon as they are scored, and the summary printed at the end is read back from the store. A run
+that stops is finished with `--resume RUN_ID`.
+
+Run it from the repository root: the eval sets, `uv.lock` and the git state are read there.
 """
 
 import argparse
 import asyncio
-import subprocess
+import logging
 import sys
+import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import get_args
 
 import httpx
-from pydantic import BaseModel
+from pydantic import ValidationError
 
-from ragcalibrate.contract import Strategy
+from ragcalibrate import logs
 from ragcalibrate.corpora import evalsets
-from ragcalibrate.corpora.schema import Split
+from ragcalibrate.corpora.schema import Query
 from ragcalibrate.harness.adapter import TIMEOUT, HttpSut, SutNotReady
-from ragcalibrate.harness.run import (
-    K_VALUES,
-    MRR_K,
-    Mean,
-    QueryResult,
-    by_category,
-    retrieve_all,
-    score,
-    summarize,
+from ragcalibrate.harness.manifest import (
+    ConfigError,
+    Manifest,
+    RunConfig,
+    build_manifest,
+    config_hash,
+    git_state,
+    load_config,
+    run_row,
 )
-from ragcalibrate.logs import configure_logging
+from ragcalibrate.harness.run import QueryResult, by_category, summarize
+from ragcalibrate.harness.runner import RunFailed, execute
+from ragcalibrate.harness.store import RunStore, StoreError
 
 EVALSETS = Path("evalsets")
-# The chunker `make ingest` loads (scripts/ingest.py). An experiment parameter, not a service
-# internal: the harness names it, the service looks it up. Experiment YAML replaces this (3.7).
-DEFAULT_CHUNKER = "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
-CORPUS = "cuad"
-# S3's fusion parameters, chosen on dev with scripts/measure_rrf.py (plan step 3.2): the best of
-# 30 settings, 0.7 points of recall@5 above the usual rrf_k = 60 at the same depth.
-DEFAULT_RRF_K = 10
-DEFAULT_FUSION_DEPTH = 100
-# S4's rerank depth, chosen on dev with scripts/measure_rerank.py (plan step 3.3): the best of
-# 10, 20 and 30, though every depth scores below S3 alone (finding F-012).
-DEFAULT_RERANK_DEPTH = 10
-FUSED: tuple[Strategy, ...] = ("hybrid", "rerank")
+REPO = Path(".")
+DEFAULT_STORE = Path("runs/runs.sqlite")
 
 
-class Manifest(BaseModel):
-    created_at: str
-    git_sha: str
-    git_dirty: bool
-    evalset_hash: str
-    corpus: str
-    split: str
-    strategy: str
-    chunker_id: str
-    embedder_id: str | None
-    reranker_id: str | None
-    k: int
-    rrf_k: int | None
-    fusion_depth: int | None
-    rerank_depth: int | None
-    base_url: str
-    n_queries: int
-    n_documents: int
-
-
-class RunResult(BaseModel):
-    manifest: Manifest
-    summary: dict[str, Mean]
-    by_category: dict[str, dict[str, Mean]]
-    queries: list[QueryResult]
+class CannotResume(Exception):
+    """The run asked for cannot be resumed with this config, eval set or code."""
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ragcalibrate")
     commands = parser.add_subparsers(dest="command", required=True)
-    run = commands.add_parser("run", help="score retrieval on the dev split's answerable queries")
-    # Only dev: the test split is run once per frozen configuration (plan step 4.8), not ad hoc.
-    run.add_argument("--split", choices=["dev"], default="dev")
-    run.add_argument("--strategy", choices=get_args(Strategy), default="dense")
-    run.add_argument("--chunker-id", default=DEFAULT_CHUNKER)
-    run.add_argument("--rrf-k", type=int, help=f"hybrid and rerank (default {DEFAULT_RRF_K})")
+    run = commands.add_parser("run", help="run an experiment on the dev split and store it")
+    run.add_argument("config", type=Path, help="experiment file, such as configs/s3-hybrid.yaml")
     run.add_argument(
-        "--fusion-depth", type=int, help=f"hybrid and rerank (default {DEFAULT_FUSION_DEPTH})"
+        "--store", type=Path, default=DEFAULT_STORE, help=f"run store (default {DEFAULT_STORE})"
     )
-    run.add_argument(
-        "--rerank-depth", type=int, help=f"rerank only (default {DEFAULT_RERANK_DEPTH})"
-    )
+    run.add_argument("--resume", metavar="RUN_ID", help="finish a stopped run: skip what it stored")
     run.add_argument("--base-url", default="http://127.0.0.1:8000")
     run.add_argument("--concurrency", type=int, default=8)
-    run.add_argument("--out", type=Path, help="JSON result path (default: runs/<time>.json)")
+    run.add_argument(
+        "--max-cost",
+        type=float,
+        metavar="USD",
+        help="no effect until Phase 5: a retrieval run makes no paid calls",
+    )
     args = parser.parse_args(argv)
+    if args.concurrency < 1:
+        parser.error("--concurrency must be at least 1")  # 0 would wait forever
 
-    rrf_k: int | None = args.rrf_k
-    fusion_depth: int | None = args.fusion_depth
-    rerank_depth: int | None = args.rerank_depth
-    if args.strategy in FUSED:
-        rrf_k = DEFAULT_RRF_K if rrf_k is None else rrf_k
-        fusion_depth = DEFAULT_FUSION_DEPTH if fusion_depth is None else fusion_depth
-    if args.strategy == "rerank":
-        rerank_depth = DEFAULT_RERANK_DEPTH if rerank_depth is None else rerank_depth
-
-    configure_logging()
+    logs.configure_logging()
+    # httpx logs every request at INFO: one line per query would bury the report.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
-        result = asyncio.run(
-            _run(
-                args.split,
-                args.strategy,
-                args.chunker_id,
-                args.base_url,
-                args.concurrency,
-                rrf_k,
-                fusion_depth,
-                rerank_depth,
-            )
-        )
+        config = load_config(args.config)
+        run_id, manifest = asyncio.run(_run(args, config))
+    except ConfigError as exc:
+        return _fail(str(exc), code=2)
     except SutNotReady as exc:
-        # A setup problem, not a bug: one line instead of a traceback per query in flight.
         hint = "the service must be running (`make serve`, after `make up` and `make ingest`)"
-        sys.stderr.write(f"ragcalibrate: {exc}; {hint}, or pass --base-url\n")
-        return 1
-    out: Path = args.out or Path("runs") / f"{result.manifest.created_at.replace(':', '')}.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(result.model_dump_json(indent=1) + "\n", encoding="utf-8")
-    _report(result, out)
+        return _fail(f"{exc}; {hint}, or pass --base-url")
+    except (StoreError, CannotResume, RunFailed) as exc:
+        return _fail(str(exc))
+    except KeyboardInterrupt:
+        return _fail("interrupted", code=130)
+    with RunStore.open(args.store) as store:
+        results = store.queries(run_id)
+    _report(run_id, args.config, args.store, manifest, results)
     return 0
 
 
-async def _run(
-    split: Split,
-    strategy: Strategy,
-    chunker_id: str,
-    base_url: str,
-    concurrency: int,
-    rrf_k: int | None,
-    fusion_depth: int | None,
-    rerank_depth: int | None,
-) -> RunResult:
-    async with httpx.AsyncClient(base_url=base_url, timeout=TIMEOUT) as client:
+async def _run(args: argparse.Namespace, config: RunConfig) -> tuple[str, Manifest]:
+    async with httpx.AsyncClient(base_url=args.base_url, timeout=TIMEOUT) as client:
         sut = HttpSut(client)
         await sut.check_ready()  # first: a service that is down fails here, before any work
-        manifest = evalsets.verify(EVALSETS)  # the files on disk are the hashed ones
-        gold = [g for g in evalsets.read_gold(EVALSETS, split) if g.answerable]
+        evalset = evalsets.verify(EVALSETS)  # the files on disk are the hashed ones
+        gold = [g for g in evalsets.read_gold(EVALSETS, config.split) if g.answerable]
         wanted = {g.query_id for g in gold}
-        queries = [q for q in evalsets.read_queries(EVALSETS, split) if q.id in wanted]
-        gold_of = {g.query_id: g for g in gold}
-        k = max(*K_VALUES, MRR_K)
-        created_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        responses = await retrieve_all(
-            sut,
-            queries,
-            corpus=CORPUS,
-            strategy=strategy,
-            chunker_id=chunker_id,
-            k=k,
-            concurrency=concurrency,
-            rrf_k=rrf_k,
-            fusion_depth=fusion_depth,
-            rerank_depth=rerank_depth,
-        )
-    embedders = {r.embedder_id for r in responses}
-    if len(embedders) != 1:
-        raise RuntimeError(f"the service used more than one embedder in one run: {embedders}")
-    rerankers = {r.reranker_id for r in responses}
-    if len(rerankers) != 1:
-        raise RuntimeError(f"the service used more than one reranker in one run: {rerankers}")
-    results = [score(r, gold_of[q.id]) for q, r in zip(queries, responses, strict=True)]
-    sha, dirty = _git_state()
-    return RunResult(
-        manifest=Manifest(
-            created_at=created_at,
-            git_sha=sha,
-            git_dirty=dirty,
-            evalset_hash=manifest.evalset_hash,
-            corpus=CORPUS,
-            split=split,
-            strategy=strategy,
-            chunker_id=chunker_id,
-            embedder_id=embedders.pop(),
-            reranker_id=rerankers.pop(),
-            k=k,
-            rrf_k=rrf_k,
-            fusion_depth=fusion_depth,
-            rerank_depth=rerank_depth,
-            base_url=base_url,
-            n_queries=len(results),
-            n_documents=len({r.document_id for r in results}),
-        ),
-        summary=summarize(results),
-        by_category=by_category(results),
-        queries=results,
+        queries = [q for q in evalsets.read_queries(EVALSETS, config.split) if q.id in wanted]
+        args.store.parent.mkdir(parents=True, exist_ok=True)
+        # Opening, starting and checking a run are short synchronous calls made before any
+        # query is in flight, so they hold up nothing; the runner's writes go to a thread.
+        with RunStore.open(args.store) as store:
+            if args.resume is None:
+                run_id, manifest = _start(store, config, evalset.evalset_hash, args, queries)
+            else:
+                run_id = args.resume
+                manifest = _resumable(store, run_id, config, evalset.evalset_hash)
+            sys.stderr.write(
+                f"ragcalibrate: run {run_id} in {args.store}; if it stops, finish it with"
+                f" `ragcalibrate run {args.config} --resume {run_id}`\n"
+            )
+            logs.run_id.set(run_id)  # every log line of the run carries it
+            await execute(
+                sut,
+                store,
+                run_id,
+                config,
+                queries,
+                {g.query_id: g for g in gold},
+                concurrency=args.concurrency,
+            )
+    return run_id, manifest
+
+
+def _start(
+    store: RunStore,
+    config: RunConfig,
+    evalset_hash: str,
+    args: argparse.Namespace,
+    queries: Sequence[Query],
+) -> tuple[str, Manifest]:
+    now = datetime.now(UTC)
+    # Sortable by start time; the random part keeps two runs started in one second apart.
+    run_id = f"{now:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
+    manifest = build_manifest(
+        config,
+        created_at=f"{now:%Y-%m-%dT%H:%M:%SZ}",
+        evalset_hash=evalset_hash,
+        base_url=args.base_url,
+        n_queries=len(queries),
+        n_documents=len({q.document_id for q in queries}),
+        repo=REPO,
     )
+    store.add_run(run_row(run_id, manifest))
+    return run_id, manifest
 
 
-def _git_state() -> tuple[str, bool]:
-    # Fixed arguments, no user input; git from PATH is how every contributor runs it.
-    def git(*args: str) -> str:
-        done = subprocess.run(["git", *args], capture_output=True, text=True, check=True)  # noqa: S603, S607
-        return done.stdout.strip()
+def _resumable(store: RunStore, run_id: str, config: RunConfig, evalset_hash: str) -> Manifest:
+    """The stored run's manifest, if this config, eval set and code may finish it."""
+    try:
+        manifest = Manifest.model_validate_json(store.run(run_id).manifest_json)
+    except ValidationError as exc:
+        raise CannotResume(f"run {run_id} was started by other code: {exc}") from exc
+    now = (config_hash(config), evalset_hash, *git_state(REPO))
+    then = (manifest.config_hash, manifest.evalset_hash, manifest.git_sha, manifest.git_dirty)
+    names = ("config", "eval set", "git commit", "dirty flag")
+    changed = [name for name, a, b in zip(names, now, then, strict=True) if a != b]
+    # A tree dirty both times passes: the changes themselves are not compared.
+    if changed:
+        raise CannotResume(
+            f"cannot resume run {run_id}, changed since it started: {', '.join(changed)};"
+            " start a new run instead"
+        )
+    return manifest
 
-    return git("rev-parse", "HEAD"), bool(git("status", "--porcelain"))
+
+def _fail(message: str, *, code: int = 1) -> int:
+    # A setup problem or a stopped run, not a bug: one line each, no traceback.
+    sys.stderr.write("".join(f"ragcalibrate: {line}\n" for line in message.splitlines()))
+    return code
 
 
-def _report(result: RunResult, out: Path) -> None:
-    m = result.manifest
+def _report(
+    run_id: str, config_path: Path, store: Path, manifest: Manifest, results: list[QueryResult]
+) -> None:
+    c = manifest.config
+    summary = summarize(results)
     lines = [
-        f"{m.split} {m.strategy} {m.chunker_id} {m.embedder_id}"
-        + (f" rrf_k={m.rrf_k} fusion_depth={m.fusion_depth}" if m.strategy in FUSED else "")
-        + (f" {m.reranker_id} rerank_depth={m.rerank_depth}" if m.strategy == "rerank" else ""),
-        f"{m.n_queries} answerable queries, {m.n_documents} documents; "
-        f"git {m.git_sha[:12]}{' (dirty)' if m.git_dirty else ''}; evalset {m.evalset_hash[:12]}",
+        f"run {run_id} ({config_path}), stored in {store}",
+        f"{c.split} {c.strategy} {c.chunker_id}"
+        + (f" {c.embedder_id}" if c.embedder_id else "")
+        + (f" rrf_k={c.rrf_k} fusion_depth={c.fusion_depth}" if c.rrf_k is not None else "")
+        + (f" {c.reranker_id} rerank_depth={c.rerank_depth}" if c.reranker_id else ""),
+        f"{len(results)} answerable queries, {manifest.n_documents} documents;"
+        f" git {manifest.git_sha[:12]}{' (dirty)' if manifest.git_dirty else ''};"
+        f" evalset {manifest.evalset_hash[:12]}",
         "",
-        *(f"{name:10} {mean.mean:.4f}  (n={mean.n})" for name, mean in result.summary.items()),
+        *(f"{name:10} {mean.mean:.4f}  (n={mean.n})" for name, mean in summary.items()),
         "",
         f"{'category':40} {'n':>4} {'recall@5':>8} {'mrr@10':>7}",
         *(
             f"{category[:40]:40} {ms['recall@5'].n:4} {ms['recall@5'].mean:8.3f}"
             f" {ms['mrr@10'].mean:7.3f}"
-            for category, ms in result.by_category.items()
+            for category, ms in by_category(results).items()
         ),
-        "",
-        f"wrote {out}",
     ]
     sys.stdout.write("\n".join(lines) + "\n")
 

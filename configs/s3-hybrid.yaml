@@ -1,0 +1,10 @@
+# S3: Reciprocal Rank Fusion of S1 and S2 on chunker C1 (Design §7). Both parameters were
+# chosen on dev among 30 settings with scripts/measure_rrf.py (plan step 3.2): rrf_k = 10 scored
+# 0.7 points of recall@5 above the usual 60 at the same depth.
+corpus: cuad
+split: dev
+strategy: hybrid
+chunker_id: "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
+embedder_id: "bge-small-en-v1.5@5c38ec7c405e"
+rrf_k: 10
+fusion_depth: 100

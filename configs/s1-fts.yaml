@@ -1,0 +1,7 @@
+# S1: Postgres full-text search on chunker C1 (Design §7). The query is an OR over the
+# question's lexemes, ranked with ts_rank (ADR 0009); there is no model and no parameter.
+# Quoted ids: YAML 1.1 would read some unquoted strings as numbers or booleans.
+corpus: cuad
+split: dev
+strategy: fts
+chunker_id: "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"

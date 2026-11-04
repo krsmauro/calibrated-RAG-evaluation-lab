@@ -1,0 +1,13 @@
+# S4: S3's top rerank_depth chunks rescored by the local cross-encoder (ADR 0013), on chunker
+# C1. S3's parameters as in s3-hybrid.yaml. rerank_depth was chosen on dev with
+# scripts/measure_rerank.py (plan step 3.3) as the best of 10, 20 and 30, though every depth
+# scores below S3 alone with CUAD's templated question (finding F-012, decision D7).
+corpus: cuad
+split: dev
+strategy: rerank
+chunker_id: "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
+embedder_id: "bge-small-en-v1.5@5c38ec7c405e"
+reranker_id: "ms-marco-MiniLM-L6-v2@233902d25c44"
+rrf_k: 10
+fusion_depth: 100
+rerank_depth: 10

@@ -26,6 +26,8 @@ from ragcalibrate.harness.metrics.retrieval import (
 # docs/eval-spec.md section 8: every k is reported, so saturation shows instead of hiding.
 K_VALUES = (1, 3, 5, 10)
 MRR_K = 10
+# How many chunks a run asks for: enough for every metric above, and no more.
+K = max(*K_VALUES, MRR_K)
 
 
 class Mean(BaseModel):
