@@ -1,0 +1,8 @@
+# S1 (as in s1-fts.yaml) on chunker C2, structure-aware (plan steps 3.4 and 3.9): chunks end
+# where a section or clause heading starts, sections packed up to 256 tokens, C1 inside longer
+# ones. Needs `make ingest CHUNKER=c2`. Compared with C1 at a fixed retrieved budget, not at
+# fixed k (Design §5.2; scripts/measure_chunkers.py budget).
+corpus: cuad
+split: dev
+strategy: fts
+chunker_id: "c2v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"

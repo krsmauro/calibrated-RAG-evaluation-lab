@@ -1,0 +1,6 @@
+# S2 (as in s2-dense.yaml) on chunker C2 (see s1-fts-c2.yaml). Needs `make ingest CHUNKER=c2`.
+corpus: cuad
+split: dev
+strategy: dense
+chunker_id: "c2v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
+embedder_id: "bge-small-en-v1.5@5c38ec7c405e"

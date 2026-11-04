@@ -1,0 +1,10 @@
+# S3 (as in s3-hybrid.yaml) on chunker C2 (see s1-fts-c2.yaml). Needs `make ingest CHUNKER=c2`.
+# The fusion parameters were chosen on dev with C1 at 256 tokens and are kept, not retuned, so
+# the chunker is the only thing that changes.
+corpus: cuad
+split: dev
+strategy: hybrid
+chunker_id: "c2v1:bge-small-en-v1.5@5c38ec7c405e:size=256:overlap=32"
+embedder_id: "bge-small-en-v1.5@5c38ec7c405e"
+rrf_k: 10
+fusion_depth: 100

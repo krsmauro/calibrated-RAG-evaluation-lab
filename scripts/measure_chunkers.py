@@ -2,11 +2,13 @@
 
   structure        Chunk sizes for C1 and C2, how often C2 falls back to C1 (a section longer
                    than the window), and how many dev gold spans lie wholly inside one chunk.
-                   Reads the CUAD zip and the tokenizer; no database or service.
+                   --c1-size sets C1's window (C2's stays 256), for the size-matched C1 of plan
+                   step 3.9. Reads the CUAD zip and the tokenizer; no database or service.
   budget RUN...    Character precision and recall at a fixed retrieved budget (docs/eval-spec.md
                    §3.4) for runs in the run store (`ragcalibrate run`), each paired per query
-                   with the first. recall@k rewards bigger chunks, so chunkers are compared
-                   this way.
+                   with the first, with a 95% interval on the mean difference in recall from the
+                   paired, document-clustered bootstrap (stats.bootstrap, seed below). recall@k
+                   rewards bigger chunks, so chunkers are compared this way.
 
 The budget is counted in whitespace-separated words, a stand-in: the spec wants one fixed,
 provider-neutral tokenizer, chosen in step 4.9 (ADR 0004). Words are the same for every chunker
@@ -14,7 +16,7 @@ and strategy, which is what a comparison needs. Runs keep their top 10 chunks, s
 top 10 do not fill is reported as such.
 
 Dev only: gold spans are used only to score.
-Usage: uv run python scripts/measure_chunkers.py structure
+Usage: uv run python scripts/measure_chunkers.py structure [--c1-size TOKENS]
        uv run python scripts/measure_chunkers.py budget [--store runs/runs.sqlite] RUN_A RUN_B
 """
 
@@ -40,12 +42,14 @@ from ragcalibrate.harness.run import summarize
 from ragcalibrate.harness.store import RunStore
 from ragcalibrate.ingest.chunkers import chunk_c1, chunk_c2, heading_starts
 from ragcalibrate.ingest.embedding import DEFAULT_MODEL_DIR, load_tokenizer
+from ragcalibrate.stats.bootstrap import paired_cluster_bootstrap
 
 CUAD_ZIP = Path("data/raw/cuad/data.zip")
 EVALSETS = Path("evalsets")
 SIZE, OVERLAP = 256, 32  # as loaded by scripts/ingest.py
 BUDGETS = (256, 512, 1024)  # words; eval-spec §8 lists 2048 too, beyond what a top 10 holds
 WORD = re.compile(r"\S+")
+SEED = 20261104  # the bootstrap's; fixed, so the intervals printed are reproducible
 
 
 def word_ends(text: str) -> list[int]:
@@ -56,19 +60,19 @@ def n_tokens(tok: Tokenizer, text: str) -> int:
     return len(tok.encode(text, add_special_tokens=False).ids)
 
 
-def structure() -> None:
+def structure(c1_size: int) -> None:
     data = load_cuad(CUAD_ZIP)
     tok = load_tokenizer(DEFAULT_MODEL_DIR)
     spans_of: dict[str, list[Interval]] = defaultdict(list)
     for g in data.split("dev")[1]:
         spans_of[g.document_id] += [Interval(s.start, s.end) for s in g.spans]
     n_spans = sum(map(len, spans_of.values()))
-    print(f"{len(data.documents)} contracts; window {SIZE} tokens, overlap {OVERLAP}")
-    for name, chunk in (("C1", chunk_c1), ("C2", chunk_c2)):
+    print(f"{len(data.documents)} contracts; overlap {OVERLAP} tokens")
+    for name, chunk, size in (("C1", chunk_c1, c1_size), ("C2", chunk_c2, SIZE)):
         sizes: list[int] = []
         whole = 0
         for doc in data.documents:
-            chunks = chunk(doc.text, tok, SIZE, OVERLAP)
+            chunks = chunk(doc.text, tok, size, OVERLAP)
             sizes += [n_tokens(tok, c.text) for c in chunks]
             whole += sum(
                 any(c.start_char <= s.start and s.end <= c.end_char for c in chunks)
@@ -76,7 +80,8 @@ def structure() -> None:
             )
         q = statistics.quantiles(sizes, n=20)
         print(
-            f"{name}: {len(sizes):,} chunks, tokens per chunk mean {statistics.fmean(sizes):.0f},"
+            f"{name} (window {size}): {len(sizes):,} chunks,"
+            f" tokens per chunk mean {statistics.fmean(sizes):.1f},"
             f" median {statistics.median(sizes):.0f}, p5 {q[0]:.0f}, p95 {q[-1]:.0f};"
             f" dev gold spans wholly inside one chunk {whole:,} of {n_spans:,}"
             f" ({whole / n_spans:.1%})"
@@ -121,7 +126,11 @@ def budget(store_path: Path, run_ids: list[str]) -> None:
             f"[{i}] {row.id}: {row.split} {row.strategy} {row.chunker_id};"
             f" recall@5 {summary['recall@5'].mean:.3f}, MRR@10 {summary['mrr@10'].mean:.3f}"
         )
-    print(f"{len(base_ids)} queries; budget in words; paired with [0]: mean delta, better, worse")
+    cluster_of = {q.query_id: q.document_id for q in runs[0]}
+    print(
+        f"{len(base_ids)} queries, {len(set(cluster_of.values()))} documents; budget in words;"
+        f" paired with [0]: mean delta [95% interval, seed {SEED}], better, worse"
+    )
     for b in BUDGETS:
         scores: list[list[tuple[float, float]]] = []
         short: list[int] = []
@@ -144,7 +153,16 @@ def budget(store_path: Path, run_ids: list[str]) -> None:
             r = statistics.fmean(s[1] for s in run_scores)
             deltas = [s[1] - t[1] for s, t in zip(run_scores, scores[0], strict=True)]
             better, worse = sum(d > 0 for d in deltas), sum(d < 0 for d in deltas)
-            paired = "" if i == 0 else f"; recall {statistics.fmean(deltas):+.4f} {better} {worse}"
+            paired = ""
+            if i > 0:
+                ci = paired_cluster_bootstrap(
+                    dict(zip(base_ids, (s[1] for s in run_scores), strict=True)),
+                    dict(zip(base_ids, (s[1] for s in scores[0]), strict=True)),
+                    cluster_of,
+                    seed=SEED,
+                )
+                interval = f"[{ci.lo:+.4f}, {ci.hi:+.4f}]"
+                paired = f"; recall {ci.mean:+.4f} {interval} {better} {worse}"
             print(
                 f"  B={b:<5} [{i}] char precision {p:.4f}, char recall {r:.4f}"
                 f" (top 10 under budget: {unfilled}){paired}"
@@ -154,13 +172,14 @@ def budget(store_path: Path, run_ids: list[str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare chunkers C1 and C2 on CUAD.")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("structure")
+    structure_parser = commands.add_parser("structure")
+    structure_parser.add_argument("--c1-size", type=int, default=SIZE, metavar="TOKENS")
     budget_parser = commands.add_parser("budget")
     budget_parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     budget_parser.add_argument("runs", nargs="+", metavar="RUN_ID")
     args = parser.parse_args()
     if args.command == "structure":
-        structure()
+        structure(args.c1_size)
     else:
         budget(args.store, args.runs)
 

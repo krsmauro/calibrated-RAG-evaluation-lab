@@ -413,9 +413,11 @@ make lint                # ruff, ruff format check, pyright (strict on src/), im
 make test                # unit and property tests
 make test-integration    # integration tests against a throwaway Postgres container (needs Docker)
 make ingest              # apply migrations, then chunk, embed and load all of CUAD (resumable; several minutes the first time)
+make ingest CHUNKER=c2   # load the structure-aware chunker C2 next to C1; SIZE=199 loads a C1 with 199-token windows, the size-matched control for C2
 make serve               # run the RAG service on 127.0.0.1:8000 (/retrieve, /healthz, /readyz; OpenAPI at /docs)
 uv run ragcalibrate run configs/s2-dense.yaml   # with the service running: run one experiment on dev, store it in runs/runs.sqlite, print the summary
                                                 # (S1 to S4: configs/s1-fts.yaml, s2-dense.yaml, s3-hybrid.yaml, s4-rerank.yaml)
+                                                # (S1 to S3 on C2 or on the size-matched C1: configs/s*-c2.yaml, s*-c1-199.yaml)
 uv run ragcalibrate run configs/s2-dense.yaml --resume RUN_ID   # finish a run that stopped; it skips the queries already stored
 uv run alembic upgrade head   # apply the schema (documents, chunks with their full-text column, chunk embeddings)
 uv run python -I scripts/cuad_facts.py   # reprint the CUAD measurements

@@ -1,0 +1,7 @@
+# S1 (as in s1-fts.yaml) on C1 with a 199-token window, the size-matched control for C2 (plan
+# step 3.9, finding F-013): its chunks average 197.6 tokens, C2's 197.2 (C1 at 256: 254), so a
+# C2 gain over this run is structure, not size. Overlap stays 32. Needs `make ingest SIZE=199`.
+corpus: cuad
+split: dev
+strategy: fts
+chunker_id: "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=199:overlap=32"

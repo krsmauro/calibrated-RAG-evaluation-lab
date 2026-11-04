@@ -1,11 +1,11 @@
 """Load CUAD into Postgres: documents, chunks and bge-small embeddings (plan steps 2.6, 3.4).
 
-Usage: make ingest [CHUNKER=c2]   (applies migrations first; or:
-       uv run python scripts/ingest.py [--chunker c1|c2])
+Usage: make ingest [CHUNKER=c2] [SIZE=199]   (applies migrations first; or:
+       uv run python scripts/ingest.py [--chunker c1|c2] [--size TOKENS])
 Idempotent and resumable: a re-run skips what is stored, and an interrupted run continues
 from the last committed document or batch. Each chunker's chunks are stored under its own id,
-next to the other's. Embedding all of a chunker's chunks (about 25,000 to 30,000) on CPU takes
-minutes.
+which names the window, next to the others'. Embedding all of a chunker's chunks (about 25,000
+to 33,000) on CPU takes minutes.
 """
 
 import argparse
@@ -26,6 +26,8 @@ CUAD_ZIP = Path("data/raw/cuad/data.zip")
 CORPUS = "cuad"
 # Starting defaults chosen by the user on 2026-10-28 (plan step 2.4); tuned on dev only, later.
 # C2 uses the same window, and C1's overlap inside the sections it falls back on (step 3.4).
+# --size changes the window only: a C1 at 199 tokens, whose chunks average about what C2's do
+# (197.6 against 197.2 tokens), tells C2's structure from its smaller size (step 3.9, F-013).
 SIZE, OVERLAP = 256, 32
 CHUNKERS = {"c1": (c1_id, chunk_c1), "c2": (c2_id, chunk_c2)}
 # ONNX Runtime was fastest at batch 16 (ADR 0011). A commit every 512 chunks is about 9 s of
@@ -36,16 +38,17 @@ EMBED_BATCH, COMMIT_EVERY = 16, 512
 def main() -> int:
     parser = argparse.ArgumentParser(description="Load CUAD into Postgres.")
     parser.add_argument("--chunker", choices=sorted(CHUNKERS), default="c1")
+    parser.add_argument("--size", type=int, default=SIZE, help=f"window in tokens ({SIZE})")
     args = parser.parse_args()
     configure_logging()
     settings = load_settings()
     data = load_cuad(CUAD_ZIP)
     tokenizer = load_tokenizer(DEFAULT_MODEL_DIR)
     make_id, chunk_text = CHUNKERS[args.chunker]
-    chunker_id = make_id(EMBEDDER_ID, SIZE, OVERLAP)
+    chunker_id = make_id(EMBEDDER_ID, args.size, OVERLAP)
 
     def chunk(text: str) -> list[Chunk]:
-        return chunk_text(text, tokenizer, SIZE, OVERLAP)
+        return chunk_text(text, tokenizer, args.size, OVERLAP)
 
     url = settings.database_url.get_secret_value()
     with psycopg.connect(url, autocommit=True) as conn:

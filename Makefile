@@ -39,11 +39,13 @@ models:
 
 # Load CUAD into Postgres (documents, chunks, embeddings). Needs `make up`. Idempotent and
 # resumable; the first full run embeds every chunk on CPU, which takes several minutes.
-# CHUNKER=c2 loads the structure-aware chunker next to C1 (plan step 3.4).
+# CHUNKER=c2 loads the structure-aware chunker next to C1 (plan step 3.4); SIZE sets the window
+# in tokens (SIZE=199 is the size-matched C1 of plan step 3.9).
 CHUNKER ?= c1
+SIZE ?= 256
 ingest: data models
 	uv run alembic upgrade head
-	uv run python scripts/ingest.py --chunker $(CHUNKER)
+	uv run python scripts/ingest.py --chunker $(CHUNKER) --size $(SIZE)
 
 # Run the RAG service (system under test) on 127.0.0.1:8000. Needs `make up` and `make ingest`.
 serve:

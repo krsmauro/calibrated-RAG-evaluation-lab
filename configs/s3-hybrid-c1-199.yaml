@@ -1,0 +1,10 @@
+# S3 (as in s3-hybrid.yaml) on C1 with a 199-token window, the size-matched control for C2 (see
+# s1-fts-c1-199.yaml). Needs `make ingest SIZE=199`. Fusion parameters as in s3-hybrid.yaml,
+# not retuned.
+corpus: cuad
+split: dev
+strategy: hybrid
+chunker_id: "c1v1:bge-small-en-v1.5@5c38ec7c405e:size=199:overlap=32"
+embedder_id: "bge-small-en-v1.5@5c38ec7c405e"
+rrf_k: 10
+fusion_depth: 100
