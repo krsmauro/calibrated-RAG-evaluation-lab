@@ -1,4 +1,4 @@
-.PHONY: up down test test-integration lint data evalsets models ingest serve
+.PHONY: up down test test-integration lint data evalsets models ingest serve gate
 
 # Create .env from the example on first use; the values are local-development only.
 .env:
@@ -50,3 +50,12 @@ ingest: data models
 # Run the RAG service (system under test) on 127.0.0.1:8000. Needs `make up` and `make ingest`.
 serve:
 	uv run uvicorn ragcalibrate.service.app:create_app --factory --host 127.0.0.1 --port 8000
+
+# Gate the working tree against the merge base with BASE (plan step 4.7a): runs CONFIG on all of
+# dev at both, compares, prints the report. Starts and stops its own services on ports 8101 and
+# 8102. Needs `make up`, `make models`, `make ingest` and `make evalsets`. The script exits 0 on a
+# Pass or no verdict, 1 on a Fail, 2 if it cannot run; make reports any non-zero as its own 2.
+CONFIG ?= configs/s3-hybrid.yaml
+BASE ?= main
+gate:
+	uv run python scripts/gate.py $(CONFIG) --base $(BASE)

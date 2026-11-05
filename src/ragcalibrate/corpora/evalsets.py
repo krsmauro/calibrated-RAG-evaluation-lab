@@ -124,24 +124,37 @@ class CiSubset(BaseModel):
         return self
 
 
-def ci_subset(data: CuadData, *, evalset_hash: str, size: int, seed: int) -> CiSubset:
-    """`size` dev documents, stratified by length (docs/eval-spec.md section 7).
+def length_strata(data: CuadData) -> list[list[str]]:
+    """The dev document ids in three strata of length (docs/eval-spec.md section 7).
 
-    The dev documents, sorted by (length in characters, id), are cut into three strata of
-    near-equal count, and the size is cut the same way: stratum i holds documents
-    [i*n//3, (i+1)*n//3) and gets (i+1)*size//3 - i*size//3 of them. Within a stratum the
-    documents with the smallest sha256(f"{seed}:{id}") are drawn. A hash rather than numpy's
-    generator, whose streams may change between versions, so a seed draws the same documents on
-    any machine; and a larger size only adds documents to a smaller one's draw.
+    The dev documents, sorted by (length in characters, id), are cut into three runs of
+    near-equal count: stratum i holds documents [i*n//3, (i+1)*n//3).
     """
     dev = sorted((len(d.text), d.id) for d in data.documents if data.split_of[d.id] == "dev")
     n = len(dev)
+    return [[d for _, d in dev[i * n // STRATA : (i + 1) * n // STRATA]] for i in range(STRATA)]
+
+
+def stratum_quotas(size: int) -> list[int]:
+    """How many documents each stratum gives a subset of `size`: the size cut like the strata,
+    stratum i giving (i+1)*size//3 - i*size//3."""
+    return [(i + 1) * size // STRATA - i * size // STRATA for i in range(STRATA)]
+
+
+def ci_subset(data: CuadData, *, evalset_hash: str, size: int, seed: int) -> CiSubset:
+    """`size` dev documents, stratified by length (`length_strata`, `stratum_quotas`).
+
+    Within a stratum the documents with the smallest sha256(f"{seed}:{id}") are drawn. A hash
+    rather than numpy's generator, whose streams may change between versions, so a seed draws
+    the same documents on any machine; and a larger size only adds documents to a smaller one's
+    draw.
+    """
+    strata = length_strata(data)
+    n = sum(len(s) for s in strata)
     if not STRATA <= size <= n:
         raise ValueError(f"size must be from {STRATA} to {n} (the dev documents), got {size}")
     chosen: list[str] = []
-    for i in range(STRATA):
-        stratum = [doc_id for _, doc_id in dev[i * n // STRATA : (i + 1) * n // STRATA]]
-        quota = (i + 1) * size // STRATA - i * size // STRATA
+    for stratum, quota in zip(strata, stratum_quotas(size), strict=True):
         chosen += sorted(stratum, key=lambda d: _sha256(f"{seed}:{d}".encode()))[:quota]
     documents = tuple(sorted(chosen))
     return CiSubset(

@@ -124,9 +124,10 @@ A comparison that has fewer than the **minimum cluster count** is reported `Inco
 
 ### 6.3 δ, the smallest regression worth blocking
 
-- Retrieval primary metric: **δ = 0.02** (2 points), **provisional**. Rationale: on the order of two more missed relevant clauses per hundred queries, small enough to matter to a contract-review user and the figure used in Design §8.5.
+- Retrieval primary metric: **δ = 0.02** (2 points), **confirmed 2026-11-05** by the finalizing rule below (D9). Rationale: on the order of two more missed relevant clauses per hundred queries, small enough to matter to a contract-review user and the figure used in Design §8.5.
 - Generator primary metric: **δ = 0.05**, **provisional**, to be revisited after the A/A study measures run-to-run noise (step 8.x).
 - **Finalizing rule.** δ is chosen first on the merits above. The power study (step 4.6) then reports the minimum detectable effect (MDE) of the CI subset. If MDE > δ, the response is to enlarge the CI subset (cheap for retrieval), and only then to raise δ, with the reason recorded here. δ is never lowered to look good after seeing results.
+- **Applied to retrieval (2026-11-05, step 4.6, finding F-014, decision D9).** The MDE is the regression the gate Fails 80% of the time. It was measured on 1,000 stratified subsets of dev per size, with the noise of a strategy swap (about a quarter of queries change their recall@5): 0.051 at 60 contracts, 0.025 at 200, 0.021 at 300 and 0.018 on all 408. Only all of dev meets δ = 0.02, so the subset was enlarged to all of dev (§7) and δ was not raised. A change that touches few queries is detected at any size from 40 contracts (MDE 0.016 to 0.019 with no other noise).
 
 ### 6.4 Gate rule
 
@@ -142,6 +143,8 @@ The three rows cover every case: either `lo ≥ −δ`, or `lo < −δ` and then
 
 Observation to check in step 4.6: Fail does not require the true regression to be as large as δ, only that δ cannot be ruled out. A tiny real regression measured on a small subset can Fail. That is by design, but the false-fail and "failed on a regression below δ" rates are both reported separately.
 
+Measured in step 4.6 (F-014): on real dev subsets the false-Fail rate (true difference 0) is 2.5% pooled, 1.2% to 3.4% by row. Regressions below δ do Fail: on all of dev, 84% of fresh 408-contract samples Fail the real 1.5-point regressions of S1 and S4 against S3, and 38% Fail a seeded 1-point regression at a strategy swap's noise.
+
 Gate validation (subsampling study, A/A study, coverage test) follows Design §8.5. The false-alarm study is run with both query-level and document-level resampling, and only the document-level result is the gate.
 
 ## 7. Splits
@@ -151,7 +154,7 @@ Gate validation (subsampling study, A/A study, coverage test) follows Design §8
 - **Unit of splitting is the document.** A document's queries never straddle two splits.
 - **Test:** the dataset's official test split (Design §8.1 expects 102 CUAD contracts and 4,182 rows; step 1.7 confirms). Touched once per frozen configuration. Every touch is logged in `docs/results.md` with the config hash and run id. A new config hash is a new touch and is listed as such; reruns of the same hash (cache read-only) are not new touches.
 - **Dev:** every CUAD document in the official train split (measured in step 1.7: 408 contracts, 16,728 pairs, 5,458 answerable; test is 102 contracts, 4,182 pairs, 1,244 answerable; finding F-008). The unit is the (contract, category) pair from `CUADv1.json`; `train_separate_questions.json` has a different unit (one row per answer span) and is not used. Reason: nothing in this project is trained (fine-tuning is a non-goal), so no data needs to be held back for training. Tuning of chunk size, RRF parameters, rerank depth and prompts happens on dev only.
-- **CI subset:** a fixed sample of dev documents, stratified by document length (terciles by characters). Its size is **provisional**: set from the coverage and power studies (steps 4.2 and 4.6), not from a runtime budget alone. The sampling seed and the document list are committed with the eval set.
+- **CI subset: all of dev** (decided 2026-11-05, D9). The retrieval gate on a pull request runs on every dev document (408 contracts). The power study (step 4.6, F-014) found that no stratified subset smaller than dev meets δ = 0.02 at a strategy swap's noise (§6.3). Step 4.5's 60-contract sample, stratified by length terciles with its seed and document list in `evalsets/cuad-dev-ci.json`, is not used by the gate.
 - **Judge development vs calibration (provisional):** documents used to write and revise the judge rubric and prompt are disjoint from documents whose answers go into the human-labeled calibration set. The judge prompt is frozen (version and hash) before any calibration label is made. The sizes are fixed in step 6.1.
 - QASPER follows the same rules with its own official splits; the mapping is written in Phase 9.
 - A paraphrased-query ablation (Design §10) uses dev; it is not part of the gate.
@@ -199,6 +202,8 @@ Resolved on 2026-10-19 by approval of the whole spec:
 4. Fallback order for the retrieval primary metric and the 0.95 saturation threshold (§6.1).
 5. Starting δ values 0.02 and 0.05, provisional (§6.3).
 
+Resolved on 2026-11-05: 7. The retrieval gate runs on all of dev, δ stays 0.02 (D9; §6.3, §7).
+
 Still open, no answer needed yet:
 
 6. **Single labeler.** Can even 50 calibration items be labeled by a second person (finding F-005)? It would allow inter-rater κ. Decide before Phase 6.
@@ -208,3 +213,4 @@ Still open, no answer needed yet:
 - 2026-10-19: draft written (Claude). No test-split number exists yet.
 - 2026-10-19: approved by the user. Generator primary metric changed from the design's faithfulness pass rate to the end-to-end correct rate with a faithfulness guard (§6.1). Still no test-split number.
 - 2026-10-19: step 1.7 measurements added to §2 and §7 as facts (F-008). No decision changed. Noted in F-008: 67.9% of CUAD pairs are unanswerable, so the always-abstain baseline for presence accuracy is about 68% and must be reported beside it.
+- 2026-11-05: §6.3, §6.4 and §7 amended after the power study (step 4.6, F-014) and the user's decision D9: the retrieval gate runs on all of dev (408 contracts), not a subset; δ = 0.02 confirmed for retrieval; the §6.4 observation measured. Still no test-split number.

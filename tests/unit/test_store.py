@@ -185,6 +185,15 @@ def test_values_that_are_not_finite_are_refused(path: Path, changes: dict[str, o
         assert store.queries("r1") == []
 
 
+def test_run_ids_lists_every_stored_run(path: Path) -> None:
+    with RunStore.open(path) as store:
+        assert store.run_ids() == set()
+        store.add_run(make_run("r1"))
+        store.add_run(make_run("r2"))
+        store.add_query("r1", make_result())
+        assert store.run_ids() == {"r1", "r2"}
+
+
 def test_a_query_needs_a_stored_run(path: Path) -> None:
     with RunStore.open(path) as store:
         with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):

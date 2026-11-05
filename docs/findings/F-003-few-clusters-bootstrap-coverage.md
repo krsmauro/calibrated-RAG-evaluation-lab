@@ -1,6 +1,6 @@
 # F-003: the cluster bootstrap under-covers below about 40 contracts
 
-- **Status:** confirmed (synthetic data); the size of the CI subset that follows from it is set in 4.5 and 4.6
+- **Status:** confirmed (synthetic data, then real dev subsets in step 4.6, F-014); the CI subset size is decided by power, not coverage (F-014, D9)
 - **Date:** 2026-10-19 (hypothesis); measured 2026-11-04
 - **Found by:** Claude, while writing the plan; measured in plan step 4.2
 - **Evidence level:** measured on simulated data shaped like CUAD dev (command and output below); not yet on real subsets of dev, which is step 4.6
@@ -36,3 +36,4 @@ With 2,000 simulations a correct 95% interval lands within about ±0.010 of 0.95
 - The query-level bootstrap must never gate: at dev's own correlation it more than doubles the false-fail rate.
 
 ## Resolution
+2026-11-05, step 4.6 (F-014): checked on real subsets of CUAD dev (stored S1 to S4 runs, 1,000 subsets per row, drawn with replacement within length terciles). The clustered gate's false-Fail rate is 2.4% to 3.1% at 40 contracts and 2.5% pooled over 40 to 408 contracts (four pairs of runs); the two tails together miss 5.0% to 6.2% at 40 and 60 contracts, matching the synthetic 94.9% to 95.2% coverage above. Resampling queries falsely Fails 3.7% (S4 against S1, 40 to 100 contracts): less excess than the synthetic 5.7% to 7.2%, since dev's correlation is low, but still 50% above nominal. The 40-contract minimum in `compare` stands. Coverage is not what limits the CI subset; power is (F-014).

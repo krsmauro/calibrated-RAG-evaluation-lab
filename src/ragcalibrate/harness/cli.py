@@ -195,9 +195,9 @@ def _compare(args: argparse.Namespace) -> int:
         return _fail(f"no run store at {args.store}")
     try:
         with RunStore.open(args.store) as store:
-            baseline = _stored(store, args.baseline)
+            baseline = stored_run(store, args.baseline)
             comparisons = [
-                compare(baseline, _stored(store, run_id), force=args.force)
+                compare(baseline, stored_run(store, run_id), force=args.force)
                 for run_id in args.candidates
             ]
     except (StoreError, NotComparable) as exc:
@@ -212,7 +212,7 @@ def _compare(args: argparse.Namespace) -> int:
     return 0
 
 
-def _stored(store: RunStore, run_id: str) -> StoredRun:
+def stored_run(store: RunStore, run_id: str) -> StoredRun:
     run = store.run(run_id)
     results = store.queries(run_id)
     return StoredRun(

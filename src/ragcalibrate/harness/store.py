@@ -212,6 +212,10 @@ class RunStore:
             raise StoreError(f"no run {run_id!r} in the store")
         return run
 
+    def run_ids(self) -> set[str]:
+        """The ids of every stored run."""
+        return {str(row["id"]) for row in self._conn.execute("SELECT id FROM runs")}
+
     def query_ids(self, run_id: str) -> set[str]:
         """The ids of the run's stored queries: what a resumed run skips."""
         self.run(run_id)  # an unknown run is an error, not an empty run
