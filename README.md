@@ -2,7 +2,7 @@
 
 An open-source harness that answers the question every team changing a RAG system has: **did this change make retrieval or answers better, by how much, and can I trust the judge that says so?**
 
-> **Status (2026-11-05): Phases 2 and 3 of 9 done, Phase 4 in progress; provisional dev results only, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (fixed-size and structure-aware chunking, local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics, and `ragcalibrate run`, which runs a versioned experiment config and stores every query in a SQLite run store as it goes (resumable after a crash), exist and pass lint, type checks, unit and integration tests. The paired, document-clustered bootstrap, the gate rule and `ragcalibrate compare`, which reports each difference between two runs with its interval and the gate's outcome, exist; the CI gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, and for the two chunkers against a size-matched control, with document-clustered confidence intervals on the strategy and chunker comparisons. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
+> **Status (2026-11-05): Phases 2 and 3 of 9 done, Phase 4 in progress; provisional dev results only, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (fixed-size and structure-aware chunking, local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics, and `ragcalibrate run`, which runs a versioned experiment config and stores every query in a SQLite run store as it goes (resumable after a crash), exist and pass lint, type checks, unit and integration tests. The paired, document-clustered bootstrap, the gate rule, `ragcalibrate compare`, which reports each difference between two runs with its interval and the gate's outcome, and a fixed CI subset of 60 dev contracts (provisional size) exist; the CI gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, and for the two chunkers against a size-matched control, with document-clustered confidence intervals on the strategy and chunker comparisons. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
 
 ## Contents
 
@@ -140,6 +140,7 @@ CUAD's shipped test split stays the **test** set. A **dev** set is carved out of
 - **Why tune on dev only and touch test once per final configuration**: tuning on the set you report is the most common way eval numbers lie.
 - **Why by contract**: queries about the same contract are correlated; splitting them leaks information between dev and test.
 - **Why the CI subset size comes from a power study, not a guess**: too small and the gate cannot tell anything apart (always "inconclusive"); too large and CI is slow and expensive. Step 11 measures this.
+- **How the CI subset is drawn**: dev contracts are cut into thirds by length, and the same number is drawn from each third, since longer contracts carry about twice as many answerable queries as short ones. The draw ranks contracts by a seeded hash, so the seed gives the same contracts on any machine and a bigger subset only adds contracts. The list, its seed and its hash are committed in `evalsets/cuad-dev-ci.json` (60 contracts for now, until the power study sets the size).
 
 ### Step 4: Chunk the documents, keeping offsets
 
@@ -407,7 +408,7 @@ Commands that work today (they need Docker running and `uv` installed; the first
 make up                  # start Postgres 17 + pgvector 0.8.7 on 127.0.0.1:5433
 make down                # stop it (the data volume is kept)
 make data                # download CUAD, pinned to a commit and verified by sha256
-make evalsets            # generate the hashed dev/test query and gold files from CUAD
+make evalsets            # generate the hashed dev/test query and gold files from CUAD, and the CI subset's contract list
 make models              # download the embedding model and S4's cross-encoder, pinned and sha256-checked
 make lint                # ruff, ruff format check, pyright (strict on src/), import-linter
 make test                # unit and property tests
