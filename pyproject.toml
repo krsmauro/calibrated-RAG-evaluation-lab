@@ -98,5 +98,22 @@ forbidden_modules = [
     "ragcalibrate.service",
 ]
 
+# Reports are built from numbers the harness hands over, like stats: rendering never reaches the
+# run store, the service or the network (Design §13).
+[[tool.importlinter.contracts]]
+name = "report imports nothing from ragcalibrate but stats"
+type = "forbidden"
+source_modules = ["ragcalibrate.report"]
+forbidden_modules = [
+    "ragcalibrate.config",
+    "ragcalibrate.contract",
+    "ragcalibrate.corpora",
+    "ragcalibrate.harness",
+    "ragcalibrate.ingest",
+    "ragcalibrate.llm",
+    "ragcalibrate.logs",
+    "ragcalibrate.service",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

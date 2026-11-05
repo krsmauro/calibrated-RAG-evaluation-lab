@@ -1,6 +1,6 @@
 # F-011: lexical search (S1) beats dense search (S2) on CUAD dev
 
-- **Status:** confirmed on dev (provisional: no confidence interval yet, test split not run)
+- **Status:** confirmed on dev (provisional: test split not run); 95% intervals from step 4.4 below
 - **Date:** 2026-10-28
 - **Found by:** Claude, plan step 3.1
 - **Evidence level:** measured (commands and output below)
@@ -27,5 +27,6 @@ A hypothesis, not checked: the CUAD question template ("Highlight the parts (if 
 - **8.5 (demo regression):** S1 relies on exact terms, and stemming is part of that, so switching `english` to `simple` is likely to move S1's metric. The step still has to measure it on the CI subset.
 - **F-004 (ceiling):** S1's recall@5 of 0.560 is far from the 0.95 threshold too.
 - **README and claims:** nothing to publish until the test split (4.8) and a confidence interval exist.
+  - Note (2026-11-05, step 4.4): `ragcalibrate compare` (paired, document-clustered bootstrap, 408 contracts, seed 20261104): S1 minus S2 recall@5 **+0.0716 [+0.0565, +0.0871]**, MRR@10 +0.0623 [+0.0499, +0.0751]; S1 minus S3 recall@5 -0.0158 [-0.0265, -0.0054], so S3's 1.6-point gain over S1 is distinguishable from zero on dev. Commands and run ids in the results ledger's S1 to S4 row. The caveat that S1's ranking function was tuned on dev stands.
 
 ## Resolution

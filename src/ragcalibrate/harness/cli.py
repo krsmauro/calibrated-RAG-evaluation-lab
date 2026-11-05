@@ -6,6 +6,11 @@ serve`). Each query's ranking and metrics go into the run store (runs/runs.sqlit
 soon as they are scored, and the summary printed at the end is read back from the store. A run
 that stops is finished with `--resume RUN_ID`.
 
+`ragcalibrate compare BASELINE CANDIDATE...` (plan step 4.4) compares stored runs with the first
+one, metric by metric, with the paired, document-clustered bootstrap and the gate's outcome on
+the primary metric (`report/compare.py`). It prints the report as Markdown; `--html PATH` also
+writes it as HTML.
+
 Run it from the repository root: the eval sets, `uv.lock` and the git state are read there.
 """
 
@@ -38,6 +43,13 @@ from ragcalibrate.harness.manifest import (
 from ragcalibrate.harness.run import QueryResult, by_category, summarize
 from ragcalibrate.harness.runner import RunFailed, execute
 from ragcalibrate.harness.store import RunStore, StoreError
+from ragcalibrate.report.compare import (
+    NotComparable,
+    StoredRun,
+    compare,
+    render_html,
+    render_markdown,
+)
 
 EVALSETS = Path("evalsets")
 REPO = Path(".")
@@ -65,7 +77,19 @@ def main(argv: list[str] | None = None) -> int:
         metavar="USD",
         help="no effect until Phase 5: a retrieval run makes no paid calls",
     )
+    comp = commands.add_parser("compare", help="compare stored runs with a baseline run")
+    comp.add_argument("baseline", metavar="BASELINE", help="run id of the baseline")
+    comp.add_argument("candidates", nargs="+", metavar="CANDIDATE", help="run ids to compare")
+    comp.add_argument(
+        "--store", type=Path, default=DEFAULT_STORE, help=f"run store (default {DEFAULT_STORE})"
+    )
+    comp.add_argument("--html", type=Path, metavar="PATH", help="also write the report as HTML")
+    comp.add_argument(
+        "--force", action="store_true", help="compare runs on different eval sets or splits"
+    )
     args = parser.parse_args(argv)
+    if args.command == "compare":
+        return _compare(args)
     if args.concurrency < 1:
         parser.error("--concurrency must be at least 1")  # 0 would wait forever
 
@@ -164,6 +188,45 @@ def _resumable(store: RunStore, run_id: str, config: RunConfig, evalset_hash: st
             " start a new run instead"
         )
     return manifest
+
+
+def _compare(args: argparse.Namespace) -> int:
+    if not args.store.is_file():  # opening a missing store would create an empty one
+        return _fail(f"no run store at {args.store}")
+    try:
+        with RunStore.open(args.store) as store:
+            baseline = _stored(store, args.baseline)
+            comparisons = [
+                compare(baseline, _stored(store, run_id), force=args.force)
+                for run_id in args.candidates
+            ]
+    except (StoreError, NotComparable) as exc:
+        return _fail(str(exc))
+    sys.stdout.write(render_markdown(comparisons))
+    if args.html is not None:
+        try:
+            args.html.write_text(render_html(comparisons), encoding="utf-8")
+        except OSError as exc:
+            return _fail(f"cannot write {args.html} ({exc.strerror})")
+        sys.stderr.write(f"ragcalibrate: wrote {args.html}\n")
+    return 0
+
+
+def _stored(store: RunStore, run_id: str) -> StoredRun:
+    run = store.run(run_id)
+    results = store.queries(run_id)
+    return StoredRun(
+        id=run.id,
+        split=run.split,
+        strategy=run.strategy,
+        chunker_id=run.chunker_id,
+        git_sha=run.git_sha,
+        dirty=run.dirty,
+        evalset_hash=run.evalset_hash,
+        config_hash=run.config_hash,
+        metrics={r.query_id: r.metrics for r in results},
+        document_of={r.query_id: r.document_id for r in results},
+    )
 
 
 def _fail(message: str, *, code: int = 1) -> int:

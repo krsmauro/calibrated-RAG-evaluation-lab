@@ -2,7 +2,7 @@
 
 An open-source harness that answers the question every team changing a RAG system has: **did this change make retrieval or answers better, by how much, and can I trust the judge that says so?**
 
-> **Status (2026-11-05): Phases 2 and 3 of 9 done, Phase 4 in progress; provisional dev results only, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (fixed-size and structure-aware chunking, local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics, and `ragcalibrate run`, which runs a versioned experiment config and stores every query in a SQLite run store as it goes (resumable after a crash), exist and pass lint, type checks, unit and integration tests. The paired, document-clustered bootstrap and the gate rule exist; the `compare` command and CI gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, and for the two chunkers against a size-matched control, with document-clustered confidence intervals on the chunker comparison. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
+> **Status (2026-11-05): Phases 2 and 3 of 9 done, Phase 4 in progress; provisional dev results only, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (fixed-size and structure-aware chunking, local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics, and `ragcalibrate run`, which runs a versioned experiment config and stores every query in a SQLite run store as it goes (resumable after a crash), exist and pass lint, type checks, unit and integration tests. The paired, document-clustered bootstrap, the gate rule and `ragcalibrate compare`, which reports each difference between two runs with its interval and the gate's outcome, exist; the CI gate, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, and for the two chunkers against a size-matched control, with document-clustered confidence intervals on the strategy and chunker comparisons. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
 
 ## Contents
 
@@ -245,7 +245,7 @@ Every run writes to a **SQLite run store**: `runs`, `retrievals`, `query_metrics
 
 Every run records a **manifest**: git SHA and dirty flag, config hash, eval-set hash, chunker id, model snapshots, prompt hashes, `uv.lock` hash, RNG seeds, hardware for latency numbers. The rule: **every number in a report must be regenerable from one command**.
 
-`ragcalibrate compare` then takes a candidate run and a baseline run on the same queries and computes the **paired, document-clustered bootstrap confidence interval** of the difference in the primary metric (explained in [section 5](#5-the-statistics-you-need-to-be-able-to-explain)). The **gate** turns that interval into one of three outcomes: Pass, Fail, Inconclusive.
+`ragcalibrate compare` then takes a candidate run and a baseline run on the same queries and computes the **paired, document-clustered bootstrap confidence interval** of the difference in the primary metric (explained in [section 5](#5-the-statistics-you-need-to-be-able-to-explain)). The **gate** turns that interval into one of three outcomes: Pass, Fail, Inconclusive. Every other metric is shown with its own interval and never gates. Runs on different eval sets or splits are refused unless forced, and a change of chunker gets no outcome, since recall@k favours bigger chunks (decision D8 in the plan).
 
 **Validating the gate itself** (this is what makes the project unusual):
 
@@ -419,6 +419,8 @@ uv run ragcalibrate run configs/s2-dense.yaml   # with the service running: run 
                                                 # (S1 to S4: configs/s1-fts.yaml, s2-dense.yaml, s3-hybrid.yaml, s4-rerank.yaml)
                                                 # (S1 to S3 on C2 or on the size-matched C1: configs/s*-c2.yaml, s*-c1-199.yaml)
 uv run ragcalibrate run configs/s2-dense.yaml --resume RUN_ID   # finish a run that stopped; it skips the queries already stored
+uv run ragcalibrate compare BASELINE_RUN CANDIDATE_RUN...   # compare stored runs with the first: per metric the means, the paired difference,
+                                                # its clustered 95% CI and n; the gate's outcome on recall@5. --html PATH also writes HTML
 uv run alembic upgrade head   # apply the schema (documents, chunks with their full-text column, chunk embeddings)
 uv run python -I scripts/cuad_facts.py   # reprint the CUAD measurements
 ```
@@ -427,7 +429,7 @@ Planned commands (none of these work yet):
 
 ```bash
 make eval          # run an experiment
-ragcalibrate compare | calibrate | report
+ragcalibrate calibrate | report
 ```
 
 Contributors also need the `gitleaks` binary on their PATH for the pre-commit hook (`brew install gitleaks`), and `uv run pre-commit install` to activate the hooks.

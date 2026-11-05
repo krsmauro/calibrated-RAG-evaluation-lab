@@ -1,6 +1,6 @@
 # F-012: cross-encoder rerank (S4) lowers recall on CUAD's templated questions, and raises it on the question alone
 
-- **Status:** resolved: decision D7 answered on 2026-11-04 (the template stays). The measurement is confirmed on dev (provisional: no confidence interval yet, test split not run)
+- **Status:** resolved: decision D7 answered on 2026-11-04 (the template stays). The measurement is confirmed on dev (provisional: test split not run): S4 minus S3 recall@5 -0.0152 [-0.0249, -0.0058], a gate Fail (step 4.4)
 - **Date:** 2026-10-28
 - **Found by:** Claude, plan step 3.3
 - **Evidence level:** measured (commands and output below)
