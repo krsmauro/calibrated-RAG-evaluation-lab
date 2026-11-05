@@ -10,18 +10,19 @@
                    paired, document-clustered bootstrap (stats.bootstrap, seed below). recall@k
                    rewards bigger chunks, so chunkers are compared this way.
 
-The budget is counted in whitespace-separated words, a stand-in: the spec wants one fixed,
-provider-neutral tokenizer, chosen in step 4.9 (ADR 0004). Words are the same for every chunker
-and strategy, which is what a comparison needs. Runs keep their top 10 chunks, so a budget the
-top 10 do not fill is reported as such.
+The budget is counted in whitespace-separated words, the unit ADR 0004 fixes (`word_ends`):
+the same for every chunker, strategy and embedding model. `--unit bge` counts it in the bge
+model's WordPiece tokens instead, a sensitivity check only (ADR 0004 rejects a model's own
+tokenizer as the unit). Runs keep their top 10 chunks, so a budget the top 10 do not fill is
+reported as such.
 
 Dev only: gold spans are used only to score.
 Usage: uv run python scripts/measure_chunkers.py structure [--c1-size TOKENS]
-       uv run python scripts/measure_chunkers.py budget [--store runs/runs.sqlite] RUN_A RUN_B
+       uv run python scripts/measure_chunkers.py budget [--store runs/runs.sqlite]
+                                                 [--unit words|bge] RUN_A RUN_B
 """
 
 import argparse
-import re
 import statistics
 from bisect import bisect_left
 from collections import defaultdict
@@ -36,7 +37,9 @@ from ragcalibrate.harness.cli import DEFAULT_STORE
 from ragcalibrate.harness.metrics.retrieval import (
     Interval,
     RankedChunk,
+    TokenEnds,
     char_precision_recall_at_budget,
+    word_ends,
 )
 from ragcalibrate.harness.run import summarize
 from ragcalibrate.harness.store import RunStore
@@ -47,13 +50,15 @@ from ragcalibrate.stats.bootstrap import paired_cluster_bootstrap
 CUAD_ZIP = Path("data/raw/cuad/data.zip")
 EVALSETS = Path("evalsets")
 SIZE, OVERLAP = 256, 32  # as loaded by scripts/ingest.py
-BUDGETS = (256, 512, 1024)  # words; eval-spec §8 lists 2048 too, beyond what a top 10 holds
-WORD = re.compile(r"\S+")
+BUDGETS = (256, 512, 1024)  # in the unit chosen; eval-spec §8 also lists 2048, past a top 10
 SEED = 20261104  # the bootstrap's; fixed, so the intervals printed are reproducible
 
 
-def word_ends(text: str) -> list[int]:
-    return [m.end() for m in WORD.finditer(text)]
+def bge_ends(tok: Tokenizer) -> TokenEnds:
+    def ends(text: str) -> list[int]:
+        return [end for _, end in tok.encode(text, add_special_tokens=False).offsets]
+
+    return ends
 
 
 def n_tokens(tok: Tokenizer, text: str) -> int:
@@ -110,7 +115,8 @@ def structure(c1_size: int) -> None:
     )
 
 
-def budget(store_path: Path, run_ids: list[str]) -> None:
+def budget(store_path: Path, run_ids: list[str], unit: str) -> None:
+    token_ends = word_ends if unit == "words" else bge_ends(load_tokenizer(DEFAULT_MODEL_DIR))
     evalsets.verify(EVALSETS)
     text_of = {d.id: d.text for d in load_cuad(CUAD_ZIP).documents}
     gold = {g.query_id: g for g in evalsets.read_gold(EVALSETS, "dev")}
@@ -128,7 +134,7 @@ def budget(store_path: Path, run_ids: list[str]) -> None:
         )
     cluster_of = {q.query_id: q.document_id for q in runs[0]}
     print(
-        f"{len(base_ids)} queries, {len(set(cluster_of.values()))} documents; budget in words;"
+        f"{len(base_ids)} queries, {len(set(cluster_of.values()))} documents; budget in {unit};"
         f" paired with [0]: mean delta [95% interval, seed {SEED}], better, worse"
     )
     for b in BUDGETS:
@@ -141,11 +147,11 @@ def budget(store_path: Path, run_ids: list[str]) -> None:
                 text = text_of[q.document_id]
                 ranked = [RankedChunk(str(c), s, e) for c, s, e, _ in q.retrieved]
                 spans = [Interval(s.start, s.end) for s in gold[q.query_id].spans]
-                result = char_precision_recall_at_budget(ranked, spans, text, b, word_ends)
+                result = char_precision_recall_at_budget(ranked, spans, text, b, token_ends)
                 if result is None:
                     raise SystemExit(f"{q.query_id} has no gold span; runs score answerable only")
                 scored.append(result)
-                unfilled += sum(len(word_ends(text[s:e])) for _, s, e, _ in q.retrieved) < b
+                unfilled += sum(len(token_ends(text[s:e])) for _, s, e, _ in q.retrieved) < b
             scores.append(scored)
             short.append(unfilled)
         for i, (run_scores, unfilled) in enumerate(zip(scores, short, strict=True)):
@@ -176,12 +182,13 @@ def main() -> None:
     structure_parser.add_argument("--c1-size", type=int, default=SIZE, metavar="TOKENS")
     budget_parser = commands.add_parser("budget")
     budget_parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
+    budget_parser.add_argument("--unit", choices=("words", "bge"), default="words")
     budget_parser.add_argument("runs", nargs="+", metavar="RUN_ID")
     args = parser.parse_args()
     if args.command == "structure":
         structure(args.c1_size)
     else:
-        budget(args.store, args.runs)
+        budget(args.store, args.runs, args.unit)
 
 
 if __name__ == "__main__":

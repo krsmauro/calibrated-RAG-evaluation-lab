@@ -1,19 +1,21 @@
 # Eval — Statistics Rules
 
-For `src/ragcalibrate/stats/` and anything computing a CI, κ, or gate decision. Source of truth: `docs/design/project-design.md` §8.4–8.5. `stats/` is **pure functions: no I/O, no globals, no wall clock, seeded RNG**.
+For `src/ragcalibrate/stats/`, `report/compare.py`, `scripts/gate.py` and anything computing a CI, κ, or gate decision. Source of truth: `docs/eval-spec.md` §6 and ADR 0007 (`docs/adr/0007-paired-clustered-bootstrap-and-three-outcome-gate.md`); rationale in `docs/design/project-design.md` §8.4–8.5. `stats/` is **pure functions: no I/O, no globals, no wall clock, seeded RNG** (import-linter enforces that `stats/` imports nothing else from `ragcalibrate`, and `report/` nothing but `stats`).
 
 ## STAT-CRITICAL-1 — The gate uses a paired, document-clustered bootstrap
 
-1. Per-query difference `d_i = candidate_i − baseline_i`, joined on `query_id`.
-2. Group queries by `document_id` (the cluster).
-3. Each resample draws **documents** with replacement and includes **all** their queries; compute the mean difference; repeat ≥ 10,000 times.
-4. Percentile 95% CI (BCa optional). Record the seed and `n_resamples`.
+As built in `stats/bootstrap.py` (`paired_cluster_bootstrap`):
 
-Resampling individual queries understates variance (queries about one contract are correlated) and inflates false alarms. Unpaired comparison throws away the pairing and widens the CI. Neither shortcut is allowed in the gate; a query-level variant exists only to *demonstrate* the difference in the validation study.
+1. Per-query difference `d_i = candidate_i − baseline_i`, joined on `query_id`. The two query sets must be identical; raise otherwise.
+2. Group queries by `document_id` (the cluster). Sort clusters before drawing, so the same seed gives the same interval in any input order.
+3. Each resample draws as many **documents** as there are, with replacement, and includes **all** their queries; the statistic is the mean over all queries in the resample (a document weighs by its number of queries, so the estimand is the per-query mean the report prints, not a mean of document means).
+4. 10,000 resamples, percentile 95% interval (`np.percentile`, linear interpolation). The seed (20261104 in `compare`) is returned with the interval and printed in the report.
+
+Resampling individual queries understates variance and inflates false alarms: 3.7% false Fails on real dev subsets against the clustered 2.5% (F-014), 5.7–7.2% in simulation (F-003). Unpaired comparison throws away the pairing. Neither shortcut may gate; the query-level variant (each query its own cluster) exists only for the validation studies. BCa is allowed only if percentile intervals are shown to under-cover; they do only below 40 documents, where no interval is computed (STAT-HIGH-2).
 
 ## STAT-CRITICAL-2 — The three-outcome decision rule
 
-With δ = smallest regression worth blocking and `[lo, hi]` the 95% CI of candidate − baseline:
+With δ = smallest regression worth blocking (0.02 for retrieval) and `[lo, hi]` the 95% CI of candidate − baseline:
 
 | Outcome | Condition |
 |---|---|
@@ -21,22 +23,26 @@ With δ = smallest regression worth blocking and `[lo, hi]` the 95% CI of candid
 | **Fail** | `hi < 0` **and** `lo < −δ` |
 | **Inconclusive** | `lo < −δ` and `hi ≥ 0` → neutral status, suggest a full dev-set run |
 
-Implement as one pure function `decide(lo, hi, delta) -> Outcome` with exhaustive boundary tests (equality at `−δ`, at `0`, `lo > hi` is invalid input). Don't invent a fourth outcome or collapse Inconclusive into Pass/Fail to make CI "cleaner".
+One pure function, `stats.gate.decide(lo, hi, delta) -> Decision`, with exhaustive boundary tests (equality at `−δ`, at `0`; `lo > hi`, a negative δ or a non-finite value is invalid input). Don't invent a fourth outcome or collapse Inconclusive into Pass/Fail to make CI "cleaner". Where the platform has no neutral state (a GitHub job), Inconclusive passes **with a visible warning** and the report says "Neutral"; `scripts/gate.py` exits 0 for Pass or no verdict, 1 for Fail, 2 when it cannot run, and `--outcome FILE` carries the verdict word.
+
+Guards that live in `report/compare.py`, not in `decide`: fewer than 40 documents → Inconclusive with no interval; different chunker ids → no outcome until decision D8; different eval-set hash or split → refuse unless `--force`; different query sets → refuse.
+
+A Fail means "worse, and a regression of δ cannot be ruled out", not "the regression is at least δ": on all of dev the gate Fails 84% of samples of a real 1.5-point regression (F-014). Report the interval so readers see the size.
 
 ## STAT-CRITICAL-3 — One primary metric per kind of change
 
-Gate on one primary metric (recall@5 for retrieval changes; judge faithfulness pass rate for prompt/generator changes). Everything else is secondary, non-gating. If several metrics must gate, apply Holm–Bonferroni and say so. Testing eight metrics at 2.5% each fails ~18% of no-op PRs if independent.
+Gate on one primary metric: **recall@5 for retrieval changes** (eval-spec §6.1). For generator or prompt changes the spec deviates from the design: the primary metric is the **end-to-end correct rate** over all queries, with the **faithfulness pass rate** (over answers that say present) as a guard; both gate, so apply Holm–Bonferroni and say so (faithfulness alone can be gamed by abstaining more). Everything else is secondary, shown with its interval, non-gating. Testing eight metrics at 2.5% each fails ~18% of harmless PRs if independent.
 
 ## STAT-CRITICAL-4 — Validate the gate, don't assert it
 
 The gate ships with measured properties, produced by code in the repo and regenerated by one command:
 
-- **Coverage** (unit test, synthetic data with known true Δ): ≈95% of CIs contain it.
-- **False-alarm rate**: subsampling study on stored retrieval results (no LLM): 1,000 random CI-sized subsets of contracts on two configs with ≈0 true delta; report the share that Fail, with **both** query-level and contract-level resampling (only clustered should hold nominal).
-- **Power / minimum detectable effect**: seed regressions of known size Δ and plot the share that Fail vs Δ.
-- **Run-to-run noise** (LLM stages): 10–20 A/A repeats on the CI subset with the cache **off**; apply the gate to pairs of repeats.
+- **Coverage** (`stats/coverage.py`, `scripts/measure_coverage.py`, synthetic data with known true Δ and a chosen within-document correlation): ≈95% of CIs contain it; include small cluster counts (10–40), where percentile intervals fall short.
+- **False-alarm rate** (`stats/subsampling.py`, `scripts/measure_power.py`, stored retrieval runs, no LLM): 1,000 subsets per size, stratified like the CI set and **drawn with replacement** (without it, large subsets of a finite dev set overlap so much that false alarms fall to 0 and power looks better than it is). Make the null exact by shifting a pair's per-query differences by their dev mean, so every query keeps its real noise and the truth is 0. Report the share that Fail with **both** query-level and document-level resampling (only clustered should hold nominal).
+- **Power / minimum detectable effect**: seed regressions of known size Δ on top of a stated noise level (a strategy swap's churn and no churn give very different MDEs: 0.018 against 0.019 on all of dev, but 0.051 against 0.016 at 60 documents), and read the MDE at 80% Fail. Check against real regressions too.
+- **Run-to-run noise** (LLM stages): 10–20 A/A repeats on the CI set with the cache **off**; apply the gate to pairs of repeats. Deterministic retrieval needs none: identical runs give [0, 0].
 
-Report the numbers with their own uncertainty (they're proportions from finite simulations: give a CI / the number of trials).
+Report the numbers with their own uncertainty (they're proportions from finite simulations: give a Wilson CI or the number of trials).
 
 ## STAT-HIGH-1 — Cohen's κ done correctly
 
@@ -48,19 +54,26 @@ Report the numbers with their own uncertainty (they're proportions from finite s
 
 ## STAT-HIGH-2 — Determinism and numerics
 
-- `numpy.random.default_rng(seed)`; pass the generator in; never use the global RNG. The seed goes into the manifest and the report.
-- Vectorize resampling (index arrays, `np.add.reduceat`/precomputed cluster sums) instead of Python loops; a clustered bootstrap over precomputed per-cluster sums and sizes is fast and exact for means.
-- Guard small-n: fewer than a stated minimum of clusters → return Inconclusive with a reason, not a misleadingly tight CI.
+- `numpy.random.default_rng(seed)`; pass the seed or generator in; never use the global RNG. The seed goes into the manifest and the report. For draws that must be identical on any machine and numpy version (the CI subset), use a seeded hash (`sha256(f"{seed}:{id}")`), not a generator stream.
+- Vectorize resampling over precomputed per-cluster sums and sizes; it is fast and exact for means (0.06 s and 63 MB on all of dev). The query-level variant on all of dev peaks near 1 GB: keep it to subsets or chunk it.
+- Guard small-n: fewer than **40 documents** (F-003: coverage 93.3% and 3.0% false Fails at 30) → Inconclusive with the reason, no interval. The floor is applied in `report/compare.py`.
 - Floats: compare with tolerances in tests (`pytest.approx`); don't test equality on bootstrap percentiles unless the seed and the library version are pinned. Percentile method (`np.percentile` interpolation) is part of the definition.
-- No NaN silently propagating into a mean; decide and document how undefined metrics are excluded.
+- No NaN silently propagating into a mean: `paired_cluster_bootstrap` rejects non-finite values; undefined metrics (`None`) are left out and counted, never scored 0.
 
 ## STAT-HIGH-3 — Bias tests are paired experiments with CIs
 
 Position (both orders → flip rate), verbosity (pad answers, gold verdict unchanged → pass-rate change), citation trust (swap in wrong citations → share still passed), self-preference (same-family vs other-family judge on identical items). Each reports an effect size with a CI. A mitigation claim needs before/after numbers.
 
+## STAT-HIGH-4 — Test statistics code against answers worked out by hand
+
+- Make the bootstrap distribution enumerable: two clusters give three possible means with probabilities 1/4, 1/2, 1/4, so the interval is exact (for example differences +1 and 0 against −1 give [−1, 0.5] at 95%).
+- Use values that are binary fractions (0.25, 0.5) so intervals and means compare exactly, without tolerances.
+- Test every boundary of a rule (`lo == −δ`, `hi == 0`, 39 and 40 documents) and add property tests for monotonicity (moving an interval up never gives a worse outcome).
+- Plant bugs to check the tests catch them (resample queries instead of clusters, unweighted mean, `>` for `>=`, runs swapped, seed ignored). Set `PYTHONDONTWRITEBYTECODE=1` and delete `__pycache__` first: a same-size edit restored within a second leaves a stale `.pyc` running.
+
 ## STAT-MEDIUM-1 — Sample-size sanity
 
-Before labeling more or choosing the CI subset size, compute the expected CI width for the actual prevalence/agreement (n ≈ 200 at ~85% agreement, balanced → κ CI ≈ ±0.1). The CI-subset size comes from the power study, not a guess.
+Before labeling more or choosing an eval-set size, compute the expected CI width for the actual prevalence/agreement (n ≈ 200 at ~85% agreement, balanced → κ CI ≈ ±0.1). The CI set size comes from the power study, not a guess: for retrieval it is all 408 dev documents (F-014, D9), the only size whose MDE at a strategy swap's churn is below δ = 0.02. The LLM stages' CI set is sized the same way in Phase 8.
 
 ## STAT-MEDIUM-2 — Stretch: prediction-powered inference (PPI)
 

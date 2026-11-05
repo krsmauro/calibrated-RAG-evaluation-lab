@@ -5,6 +5,7 @@ undefined because the query has no gold span returns None: the caller excludes t
 average; it is never scored as zero or one (spec 3.1).
 """
 
+import re
 from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
@@ -24,9 +25,18 @@ class RankedChunk(NamedTuple):
         return Interval(self.start, self.end)
 
 
-# Character offset just after each token of a text. Which tokenizer is used is decided in step 4.9;
-# the metric only needs to know where the tokens end.
+# Character offset just after each token of a text. The budget unit is `word_ends` (ADR 0004); it is
+# a parameter so a sensitivity check can count the same budget in another tokenizer's tokens.
 TokenEnds = Callable[[str], list[int]]
+
+# Whitespace as `re` defines it for str patterns: Unicode whitespace, no-break spaces included.
+_WORD = re.compile(r"\S+")
+
+
+def word_ends(text: str) -> list[int]:
+    """The budget unit: the end offset of each whitespace-separated word (ADR 0004). One fixed
+    rule for every chunker, strategy and embedding model, with no tokenizer to download or pin."""
+    return [m.end() for m in _WORD.finditer(text)]
 
 
 def overlap(a: Interval, b: Interval) -> int:

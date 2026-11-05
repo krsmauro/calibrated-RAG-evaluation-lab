@@ -155,7 +155,7 @@ Chunkers are versioned (`chunker_id`), and several chunkings of the same corpus 
 Chunks are embedded with a **local** model and bulk-loaded with `COPY`. Ingestion is idempotent and resumable: a document is identified by its dataset id and its content hash is checked, so re-running is a no-op, an interrupted run continues where it stopped, and changed text is refused rather than overwritten. The Postgres database holds documents, chunks and chunk embeddings only.
 
 - **Why local embedding and reranking models**: retrieval evals become free, effectively deterministic, and runnable in CI with no API keys. Hosted models can be added later as extra strategies.
-- **Why Postgres with pgvector rather than a vector database**: one system gives vector search, full-text search, transactions, migrations and filters by document. For a corpus of this size a dedicated vector DB adds an operational dependency and nothing measurable (decision to be recorded in ADR 0001).
+- **Why Postgres with pgvector rather than a vector database**: one system gives vector search, full-text search, transactions, migrations and filters by document. For a corpus of this size a dedicated vector DB adds an operational dependency and nothing measurable (ADR 0001).
 - **Why gold labels never go here**: if the service's database or request bodies contained `gold`, `answerable` or `expected`, the system under test could, even accidentally, use the answer key. Keeping them out is leak prevention by design, and the architecture diagram makes it visible.
 
 ### Step 6: Retrieve
@@ -186,9 +186,9 @@ For each answerable query, comparing the ranked chunks with the gold spans (a ch
 - **Hit@k**: any top-k chunk overlaps any gold span.
 - **Recall@k**: the fraction of the query's gold spans overlapped by some top-k chunk.
 - **MRR@k**: 1 / rank of the first overlapping chunk, else 0.
-- **Character precision and recall at a token budget B**: within the first B retrieved tokens, how much of what was retrieved is inside gold spans, and how much of the gold text was retrieved.
+- **Character precision and recall at a token budget B**: within the first B retrieved tokens, how much of what was retrieved is inside gold spans, and how much of the gold text was retrieved. B is counted in whitespace-separated words (ADR 0004): the same unit for every chunker, strategy and embedding model, with no tokenizer to pin. A word is about 1.38 tokens of the local embedding model on CUAD.
 
-Why **span overlap** instead of "the right chunk ID": chunk IDs depend on the chunker, so ID-based relevance cannot compare chunkers and breaks whenever chunk boundaries move. Overlap with a character span is defined on the document itself, so it is the same ground truth for every chunker. The overlap threshold (any overlap versus at least 50% of the gold span) is chosen, stated, and its sensitivity reported.
+Why **span overlap** instead of "the right chunk ID": chunk IDs depend on the chunker, so ID-based relevance cannot compare chunkers and breaks whenever chunk boundaries move. Overlap with a character span is defined on the document itself, so it is the same ground truth for every chunker. The overlap threshold is chosen, stated, and its sensitivity reported: any overlap counts (R1, the rule the gate uses), and the check (R2) asks for half of the shorter of the span and the chunk. On CUAD dev, R2 lowers every strategy's recall@5 by about 2 points and changes no gate outcome (ADR 0004).
 
 All metrics are hand-checked: every one has a test against a hand-computed fixture, including no gold spans, duplicate chunks, overlapping gold spans, and a gold span split across two chunks.
 
@@ -261,9 +261,9 @@ Every run records a **manifest**: git SHA and dirty flag, config hash, eval-set 
 
 A GitHub Action (`action/`, run on every pull request by `.github/workflows/gate.yml`) runs the gate on all of dev, compares against a baseline, posts or updates **one sticky PR comment** (baseline, candidate, delta, 95% CI and outcome per metric, run cost, links), and sets the result: a Fail fails the check, and Inconclusive is neutral, so the check passes with a warning (a GitHub job has no neutral state).
 
-- **Baseline**: for retrieval, recompute at the merge-base commit in the same job (cheap, immune to drift). For LLM metrics, reuse a stored baseline run from `main` and print its age, because hosted models can change underneath you.
+- **Baseline**: for retrieval, recompute at the merge-base commit in the same job (cheap, immune to drift); CI caches only the database index, never a result (ADR 0010). For LLM metrics, reuse a stored baseline run from `main` and print its age, because hosted models can change underneath you.
 - **Fork PRs get no secrets.** The LLM stages skip cleanly and the gate falls back to retrieval-only. The Action must not use `pull_request_target` to run untrusted PR code with secrets; that is a well-known security hole.
-- **Gate on one primary metric per kind of change** (recall for retrieval changes, judge faithfulness pass rate for prompt or generator changes) and report everything else as non-gating. With eight metrics each at a 2.5% false-fail rate, about 18% of no-op PRs would fail on *something* if the metrics were independent.
+- **Gate on one primary metric per kind of change** (recall@5 for retrieval changes; for prompt or generator changes, the end-to-end correct rate, with the judge's faithfulness pass rate as a Holm-corrected guard, since faithfulness alone improves when a prompt simply abstains more often; ADR 0007) and report everything else as non-gating. With eight metrics each at a 2.5% false-fail rate, about 18% of no-op PRs would fail on *something* if the metrics were independent.
 - **Two demo PRs** live in the repo: a realistic-looking change with a seeded regression that must fail (for example switching the FTS config from `english` to `simple`, which quietly disables stemming) and a benign change that must pass.
 
 ---

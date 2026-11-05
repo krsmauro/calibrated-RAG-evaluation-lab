@@ -21,6 +21,7 @@ A query is one `(document, category)` pair for CUAD (templated question) or one 
 - **Primary relevance rule (R1): a chunk is relevant if it overlaps at least one gold span by at least one character.** Reason: it is the rule behind Hit@k as defined in Design §8.2, it is parameter-free, and it cannot make a long gold span unreachable.
 - Known weakness of R1: a chunk that touches a long span by one character counts as a full hit, and big chunks hit more often. That is why chunk comparisons use the token-budget metrics (§3.4) and not recall@k alone.
 - **Sensitivity rule (R2), always reported next to R1 for the strategy comparison: a chunk is relevant if its overlap is at least `min(0.5 × span length, 0.5 × chunk length)`.** The `min` is deliberate: a plain "50% of the gold span" rule makes spans longer than two chunks unreachable by any single chunk. The sensitivity report states whether the ranking of strategies under R2 matches R1. R1 stays primary regardless of the outcome, and the gate uses R1 only.
+- Measured (step 4.9, ADR 0004; `scripts/measure_relevance.py`): on the S1 to S4 dev runs, R2 lowers recall@5 by 2.2 to 2.6 points for every strategy and leaves every gate outcome against S3 unchanged. The order under R2 matches R1 on hit@5 and MRR@10. On recall@5 it differs only in S1 and S4 swapping places, which are indistinguishable under either rule (S4 minus S1: +0.0005 [-0.0116, +0.0127] under R1, -0.0029 [-0.0151, +0.0094] under R2).
 - Whitespace-only overlaps are counted as overlaps. Step 1.7 measured that no CUAD gold span has leading or trailing whitespace (0 of 13,823, finding F-008), so an overlap at a span's edge always includes a non-whitespace character. No amendment needed.
 
 ## 3. Retrieval metrics
@@ -60,7 +61,7 @@ recall@k rewards large chunks (Design §5.2), so chunker comparisons use these, 
 - Concatenate the ranked chunks in order until a budget of **B tokens** is reached; the chunk that crosses the budget is cut at the token boundary. Let `Ret` be the set of document characters in that prefix (a character covered by two overlapping chunks counts once) and `Gold` the set of characters in the merged gold spans.
 - **Character precision@B** = `|Ret ∩ Gold| / |Ret|`. If `Ret` is empty the value is 0 (returning nothing is a failure, not an undefined case).
 - **Character recall@B** = `|Ret ∩ Gold| / |Gold|`. `Gold` empty: query excluded.
-- **Tokenizer: provisional.** It must be one fixed, version-pinned, provider-neutral tokenizer applied identically to every strategy and chunker (not any embedding model's own). The choice and the exact library are made in step 4.9 (ADR 0004). Until then B is stated in that tokenizer's tokens in every config.
+- **Budget unit: fixed (step 4.9, ADR 0004): whitespace-separated words.** A token is a maximal run of non-whitespace characters, `\S+` in Python's `re` on str, so any Unicode whitespace separates words (`word_ends` in `harness/metrics/retrieval.py`). It meets the requirement this section set: one fixed rule, provider-neutral, applied identically to every strategy and chunker, and not any embedding model's own; it needs no library. On CUAD a word is about 1.38 bge tokens. Counting the budget in bge tokens instead leaves the step 3.9 conclusion for S2 and S3 unchanged and moves two smaller ones (ADR 0004, F-013).
 
 ## 4. Unanswerable queries, answer metrics and abstention
 
@@ -104,7 +105,7 @@ Only the primary metric gates. Everything else is reported as secondary, non-gat
 
 **Retrieval changes (fixed rule, provisional outcome).**
 
-- Candidates in this fixed order: **recall@5, recall@3, MRR@5, character recall@B (B = 512 tokens)**.
+- Candidates in this fixed order: **recall@5, recall@3, MRR@5, character recall@B (B = 512 words, §3.4)**.
 - The primary metric is the **first candidate whose best dev mean across S1 to S4 (chunker fixed, Design §7) is below 0.95**. The check runs once, on **dev only**, in step 2.10 and again in 3.9 when S1 to S4 all exist. It never looks at which strategy wins and never at test.
 - Default if nothing saturates: recall@5.
 - If every candidate is saturated, that is itself a finding: the corpus-and-task combination cannot separate the strategies, and the spec is amended with a harder variant before any claim is made.
@@ -120,7 +121,7 @@ Only the primary metric gates. Everything else is reported as secondary, non-gat
 
 **Fixed.** Candidate and baseline run on the same queries. For each query compute `candidate − baseline` of the primary metric. Resample **documents** (all queries of each sampled document go together), 10,000 resamples, percentile 95% interval, seed recorded in the report and the manifest. BCa is allowed only if the coverage study (step 4.2) shows percentile intervals under-cover (finding F-003).
 
-A comparison that has fewer than the **minimum cluster count** is reported `Inconclusive` without computing an interval. The minimum is **provisional**: set from the coverage simulation in step 4.2 across cluster counts of about 20 to 40 up to full dev.
+A comparison that has fewer than the **minimum cluster count** is reported `Inconclusive` without computing an interval. The minimum is **40 documents**, set from the coverage simulation in step 4.2 across 10 to 200 contracts (finding F-003): at dev's correlation the percentile interval covers 93.3% at 30 contracts (3.0% false Fails) and 94.6% to 95.2% from 40 up. `ragcalibrate compare` has applied it since step 4.4. BCa was not adopted: percentile intervals under-cover only below the minimum, where no interval is computed (ADR 0007).
 
 ### 6.3 δ, the smallest regression worth blocking
 
@@ -163,13 +164,13 @@ Gate validation (subsampling study, A/A study, coverage test) follows Design §8
 
 **Provisional list, fixed rule.**
 
-- Always computed and reported in the same run: recall@k and Hit@k for **k ∈ {1, 3, 5, 10}**, MRR@10, and character precision and recall at **B ∈ {256, 512, 1024, 2048} tokens**. They cost nothing extra, and reporting several k values shows saturation instead of hiding it.
+- Always computed and reported in the same run: recall@k and Hit@k for **k ∈ {1, 3, 5, 10}**, MRR@10, and character precision and recall at **B ∈ {256, 512, 1024, 2048} words** (§3.4). They cost nothing extra, and reporting several k values shows saturation instead of hiding it.
 - Which one gates is decided only by the rule in §6.1 (finding F-004). The values are chosen for headroom on dev, never because a favored strategy wins on them.
 - Note on F-004: a saturated metric hurts the strategy comparison (ties) and improvement detection most. It hurts regression gating less than finding F-004 suggests, since a ceiling does not stop a regression from dropping below it. Step 4.6 measures this; until then it is a hypothesis, not a fact.
 
 ## 9. Reproducibility requirements that the metrics depend on
 
-**Fixed.** Every run records the manifest in Design §8.6: git SHA and dirty flag, config hash, eval-set hash, chunker ID, dated model snapshots, prompt hashes, `uv.lock` hash, RNG seeds. The eval-set hash covers the queries, the gold spans, the split assignment and the CI-subset list. Changing any of them is a new eval set version. Results are append-only. A figure in a report or the README comes from one command and is logged in `docs/results.md`.
+**Fixed.** Every run records the manifest in Design §8.6: git SHA and dirty flag, config hash, eval-set hash, chunker ID, dated model snapshots, prompt hashes, `uv.lock` hash, RNG seeds. The eval-set hash covers the queries, the gold spans and the split assignment, and with it the CI set, which is all of dev since D9 (§7). The 60-contract list of step 4.5 has its own hash, outside the eval-set hash, and is not used. Changing any of them is a new eval set version. Results are append-only. A figure in a report or the README comes from one command and is logged in `docs/results.md`.
 
 ## 10. Coverage of Design §5 and §8
 
@@ -214,3 +215,4 @@ Still open, no answer needed yet:
 - 2026-10-19: approved by the user. Generator primary metric changed from the design's faithfulness pass rate to the end-to-end correct rate with a faithfulness guard (§6.1). Still no test-split number.
 - 2026-10-19: step 1.7 measurements added to §2 and §7 as facts (F-008). No decision changed. Noted in F-008: 67.9% of CUAD pairs are unanswerable, so the always-abstain baseline for presence accuracy is about 68% and must be reported beside it.
 - 2026-11-05: §6.3, §6.4 and §7 amended after the power study (step 4.6, F-014) and the user's decision D9: the retrieval gate runs on all of dev (408 contracts), not a subset; δ = 0.02 confirmed for retrieval; the §6.4 observation measured. Still no test-split number.
+- 2026-11-05 (step 4.9, ADRs 0004 and 0007): §3.4's budget unit fixed as whitespace-separated words, by the requirements §3.4 stated, with a sensitivity check in bge tokens; §6.1 and §8 restated in words. §2 gains the measured R2 sensitivity of S1 to S4 (gate outcomes unchanged). §6.2's minimum cluster count set to 40 by the procedure it named (step 4.2, F-003), which `compare` has applied since step 4.4, and BCa not adopted. §9 corrected: the CI-subset list was kept out of the eval-set hash in step 4.5, and since D9 the CI set is all of dev. Still no test-split number.
