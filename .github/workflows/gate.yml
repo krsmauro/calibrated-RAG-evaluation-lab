@@ -1,0 +1,33 @@
+name: retrieval-gate
+
+# The retrieval gate on every PR (plan step 4.7b; Design §8.5): one config on all of CUAD dev at
+# the merge base and on the PR, compared with a paired, document-clustered bootstrap. The job
+# fails on a Fail and passes, with a warning, on a neutral result.
+#
+# pull_request, never pull_request_target: the PR's code runs here, and it must never run with
+# secrets or a write token from a fork. This gate needs no secrets. A fork PR's token is read-only,
+# so it gets the report in the job summary and no comment. Third-party actions are pinned to a
+# commit SHA (the tag is in the comment).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write # the one sticky comment
+
+concurrency:
+  group: gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true # a new push replaces the run of the one before
+
+jobs:
+  retrieval:
+    runs-on: ubuntu-latest
+    # Building the index on a cache miss is the slow part (about 7 minutes on an Apple M5,
+    # longer here); a cached run should take a few minutes.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the gate checks out the merge base in a worktree
+          persist-credentials: false # nothing here pushes; keep the token away from PR code
+      - uses: ./action

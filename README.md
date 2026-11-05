@@ -2,7 +2,7 @@
 
 An open-source harness that answers the question every team changing a RAG system has: **did this change make retrieval or answers better, by how much, and can I trust the judge that says so?**
 
-> **Status (2026-11-05): Phases 2 and 3 of 9 done, Phase 4 in progress; provisional dev results only, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (fixed-size and structure-aware chunking, local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics, and `ragcalibrate run`, which runs a versioned experiment config and stores every query in a SQLite run store as it goes (resumable after a crash), exist and pass lint, type checks, unit and integration tests. The paired, document-clustered bootstrap, the gate rule, `ragcalibrate compare`, which reports each difference between two runs with its interval and the gate's outcome, a subsampling study of the gate, and `make gate`, which gates the working tree against the merge base locally, exist. On subsets of dev the gate's false-alarm rate holds at its nominal 2.5%, but a small subset turned out too few to catch a 2-point regression, so the gate runs on all 408 dev contracts. The GitHub Action that runs the gate on pull requests, answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, and for the two chunkers against a size-matched control, with document-clustered confidence intervals on the strategy and chunker comparisons. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
+> **Status (2026-11-05): Phases 2 and 3 of 9 done, Phase 4 in progress; provisional dev results only, no final results yet.** The Python project skeleton, the Postgres and pgvector stack, settings, JSON logging, the approved [evaluation spec](docs/eval-spec.md), CUAD ingestion (fixed-size and structure-aware chunking, local embeddings), the retrieval service with Postgres full-text search, dense search, their fusion and a cross-encoder rerank of the fusion (`/retrieve`), the retrieval metrics, and `ragcalibrate run`, which runs a versioned experiment config and stores every query in a SQLite run store as it goes (resumable after a crash), exist and pass lint, type checks, unit and integration tests. The paired, document-clustered bootstrap, the gate rule, `ragcalibrate compare`, which reports each difference between two runs with its interval and the gate's outcome, a subsampling study of the gate, and `make gate`, which gates the working tree against the merge base locally, exist. On subsets of dev the gate's false-alarm rate holds at its nominal 2.5%, but a small subset turned out too few to catch a 2-point regression, so the gate runs on all 408 dev contracts. A GitHub Action that runs the gate on every pull request and keeps one PR comment with its report is written; its first run on a real pull request is still to come. Answering and the LLM judge are still to be written. Every result is `TBD` until it appears in [docs/results.md](docs/results.md) with a command that regenerates it; the rows there so far are provisional dev numbers for full-text, dense, hybrid and reranked retrieval, and for the two chunkers against a size-matched control, with document-clustered confidence intervals on the strategy and chunker comparisons. Sections 3 onward describe what the system is designed to do and why. Progress is tracked in [docs/project-plan.md](docs/project-plan.md).
 
 ## Contents
 
@@ -49,7 +49,7 @@ The system under test is a small but real hybrid-retrieval RAG service (FastAPI,
 | `scripts/`, `Makefile`, `docker-compose.yml` | Dataset download and measurement scripts; the one-command entry points; the Postgres and pgvector stack |
 | `.claude/skills/master-code-skill/` | Coding rules for AI agents working in this repo |
 
-Code layout. `corpora`, `ingest`, `service` (`/retrieve` with dense search so far) and the retrieval metrics in `harness` have code; `llm`, `stats` and `report` are empty placeholders until their phase:
+Code layout. `corpora`, `ingest`, `service`, `harness`, `stats` and `report` have code; `llm` is an empty placeholder until Phase 5:
 
 ```text
 src/ragcalibrate/
@@ -62,7 +62,7 @@ src/ragcalibrate/
 ├── stats/     bootstrap, kappa, gate decision: pure functions, no I/O
 └── report/    Markdown/HTML reports, PR comment rendering
 migrations/ (Alembic)  evalsets/ (hashes; files generated)  configs/ (experiment YAMLs)  tests/  scripts/
-planned, not yet created: action/
+action/ (the GitHub Action that runs the retrieval gate on pull requests)
 ```
 
 ---
@@ -259,7 +259,7 @@ Every run records a **manifest**: git SHA and dirty flag, config hash, eval-set 
 
 ### Step 12: Gate pull requests
 
-A reusable GitHub Action runs the harness on the CI subset, compares against a baseline, posts or updates **one sticky PR comment** (baseline, candidate, delta, 95% CI and outcome per metric, run cost, links), and sets the exit code.
+A GitHub Action (`action/`, run on every pull request by `.github/workflows/gate.yml`) runs the gate on all of dev, compares against a baseline, posts or updates **one sticky PR comment** (baseline, candidate, delta, 95% CI and outcome per metric, run cost, links), and sets the result: a Fail fails the check, and Inconclusive is neutral, so the check passes with a warning (a GitHub job has no neutral state).
 
 - **Baseline**: for retrieval, recompute at the merge-base commit in the same job (cheap, immune to drift). For LLM metrics, reuse a stored baseline run from `main` and print its age, because hosted models can change underneath you.
 - **Fork PRs get no secrets.** The LLM stages skip cleanly and the gate falls back to retrieval-only. The Action must not use `pull_request_target` to run untrusted PR code with secrets; that is a well-known security hole.

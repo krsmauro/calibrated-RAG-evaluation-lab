@@ -7,7 +7,9 @@ go into the run store and are compared as `ragcalibrate compare` does; the Markd
 prints is what the PR comment will carry (step 4.7b).
 
 Exit code: 0 for a Pass, and for no verdict (Inconclusive, or no outcome because the chunkers
-differ, D8), which is neutral; 1 for a Fail; 2 when the gate could not run.
+differ, D8), which is neutral; 1 for a Fail; 2 when the gate could not run. `--outcome FILE`
+writes the verdict as one word, pass, fail, inconclusive or none, so the GitHub Action (step
+4.7b) can tell a Pass from a neutral result; when the gate cannot run, the file is not written.
 
 Each side gets its own service, started here on its own port from its own tree, so a `make
 serve` left running from before a change never answers for either side. Both services read the
@@ -16,7 +18,8 @@ id and be loaded first (`make ingest`), or both sides read the same chunks.
 
 Needs `make up`, `make models`, `make ingest` and `make evalsets`. The services' and runs' output
 goes to runs/gate-*.log.
-Usage: uv run python scripts/gate.py [CONFIG] [--base REF] [--store PATH]   (or `make gate`)
+Usage: uv run python scripts/gate.py [CONFIG] [--base REF] [--store PATH] [--outcome FILE]
+       (or `make gate`)
 """
 
 # Every subprocess here is git or uv from PATH, as every contributor runs them, with arguments
@@ -148,8 +151,11 @@ def main() -> int:
     parser.add_argument("config", type=Path, nargs="?", default=Path("configs/s3-hybrid.yaml"))
     parser.add_argument("--base", default="main", help="branch or commit to gate against")
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
+    parser.add_argument("--outcome", type=Path, help="write the verdict here as one word")
     args = parser.parse_args()
     store = args.store.resolve()  # the base run writes here from another directory
+    if args.outcome is not None:
+        args.outcome.unlink(missing_ok=True)  # no verdict from an earlier gate survives this one
     try:
         if not args.config.is_file():
             raise GateError(f"no config {args.config}")
@@ -174,6 +180,8 @@ def main() -> int:
     primary = comparison.rows[0]  # the primary metric comes first
     verdict = primary.outcome.value if primary.outcome is not None else "no outcome"
     print(f"gate: {verdict}{f' ({primary.note})' if primary.note else ''}", file=sys.stderr)
+    if args.outcome is not None:
+        args.outcome.write_text(f"{primary.outcome.value if primary.outcome else 'none'}\n")
     return 1 if primary.outcome is Outcome.FAIL else 0
 
 

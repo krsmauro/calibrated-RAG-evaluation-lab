@@ -1,0 +1,139 @@
+name: ragcalibrate retrieval gate
+description: >-
+  Gate a pull request on retrieval quality (plan step 4.7b; Design §8.5; D9). Runs one experiment
+  config on all of CUAD dev at the merge base and on the PR, each with its own service, compares
+  them with a paired, document-clustered bootstrap (scripts/gate.py), writes the report to the
+  job summary and to one sticky PR comment, and fails the job on a Fail. Inconclusive is neutral:
+  the job passes with a warning. It runs this repository's own RAG service, so it works only here
+  (F-007). Needs the repository checked out with its full history.
+
+inputs:
+  config:
+    description: Experiment config to gate on.
+    default: configs/s3-hybrid.yaml
+  base-ref:
+    description: Branch or commit whose merge base with HEAD is the baseline.
+    default: origin/${{ github.base_ref }}
+  github-token:
+    description: Token for the PR comment; it needs pull-requests write.
+    default: ${{ github.token }}
+
+outputs:
+  outcome:
+    description: >-
+      pass, fail, inconclusive, none (no outcome: the chunkers differ, D8), or error (the gate
+      could not run).
+    value: ${{ steps.gate.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      with:
+        enable-cache: true
+    - shell: bash
+      run: uv sync --frozen
+    - name: Start Postgres
+      shell: bash
+      run: make up # creates .env from .env.example (local-development values only)
+
+    # The index (documents, chunks, embeddings) takes many minutes to build on a runner's CPU, so
+    # it is cached as a database dump. The key hashes git's blob ids of everything that shapes
+    # the index: the pinned data and models, the corpus loader, chunkers, embedder and loader,
+    # the schema, the Postgres image, the ingest defaults in the Makefile and the locked
+    # dependencies. A change to any of them misses the cache and builds the index afresh.
+    # The dump lives under data/, which is gitignored, so runs are still made on a clean tree.
+    - name: Key the index cache
+      id: index-key
+      shell: bash
+      run: |
+        hash=$(git ls-files -s -- src/ragcalibrate/ingest src/ragcalibrate/corpora \
+          migrations alembic.ini scripts/ingest.py scripts/fetch_cuad.py scripts/fetch_models.py \
+          Makefile docker-compose.yml uv.lock | sha256sum | cut -c1-16)
+        echo "key=ragcalibrate-gate-index-v1-$hash" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      id: index-cache
+      with:
+        path: data/gate-index.dump
+        key: ${{ steps.index-key.outputs.key }}
+    - name: Restore the cached index
+      if: steps.index-cache.outputs.cache-hit == 'true'
+      shell: bash
+      # Over TCP inside the container: on its first start the Postgres image runs a temporary
+      # server on the socket only, and the restore must reach the real one.
+      run: |
+        docker compose exec -T db sh -c \
+          'timeout 60 sh -c "until pg_isready -h 127.0.0.1 -q; do sleep 1; done"'
+        docker compose exec -T db sh -c \
+          'pg_restore -h 127.0.0.1 --no-owner --exit-on-error -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+          < data/gate-index.dump
+    # Always run: after a restore it only checks the stored index (about 5 s) and loads whatever
+    # is missing. It downloads CUAD and the models first, and builds the eval sets.
+    - name: Load the index
+      shell: bash
+      run: |
+        make evalsets
+        make ingest
+    # Saved before the gate runs, so a Fail still leaves the cache for the next push.
+    - name: Dump the index
+      if: steps.index-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        docker compose exec -T db sh -c \
+          'pg_dump -h 127.0.0.1 --format=custom -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+          > data/gate-index.dump
+    - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      if: steps.index-cache.outputs.cache-hit != 'true'
+      with:
+        path: data/gate-index.dump
+        key: ${{ steps.index-key.outputs.key }}
+
+    # The gate's exit code is fixed by its outcome (1 only for a Fail), and the outcome file is
+    # missing when it could not run, so the file alone says how the job ends (last step).
+    - name: Run the gate
+      id: gate
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        uv run python scripts/gate.py "$CONFIG" --base "$BASE_REF" \
+          --outcome "$RUNNER_TEMP/gate-outcome" > "$RUNNER_TEMP/gate-report.md" || true
+        echo "outcome=$(cat "$RUNNER_TEMP/gate-outcome" 2>/dev/null || echo error)" >> "$GITHUB_OUTPUT"
+    # Runs even when an earlier step failed, so the comment never keeps an older push's verdict.
+    # Fork PRs get a read-only token: they get the job summary and no comment.
+    - name: Write the job summary and the PR comment
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        OUTCOME: ${{ steps.gate.outputs.outcome || 'error' }}
+        CONFIG: ${{ inputs.config }}
+        PR: ${{ github.event.pull_request.number }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        POST_COMMENT: >-
+          ${{ github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: bash "$GITHUB_ACTION_PATH/comment.sh"
+    - name: Set the result
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        OUTCOME: ${{ steps.gate.outputs.outcome || 'error' }}
+      run: |
+        case "$OUTCOME" in
+          pass) echo "Retrieval gate: pass" ;;
+          inconclusive | none)
+            echo "::warning title=Retrieval gate::$OUTCOME (neutral, the job passes); see the report" ;;
+          fail)
+            echo "::error title=Retrieval gate::fail: recall@5 is worse, see the report"
+            exit 1 ;;
+          *)
+            echo "::error title=Retrieval gate::the gate could not run"
+            for log in runs/gate-*.log; do
+              [ -f "$log" ] || continue
+              echo "::group::$log (last 50 lines)"; tail -n 50 "$log"; echo "::endgroup::"
+            done
+            exit 2 ;;
+        esac
