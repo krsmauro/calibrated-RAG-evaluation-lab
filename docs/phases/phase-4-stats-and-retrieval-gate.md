@@ -102,12 +102,17 @@ Claimed: Claude (Opus 5.5, VS Code session), 2026-11-05
   Files: `.github/workflows/gate.yml`, `action/action.yml`, `action/comment.sh` (new); `scripts/gate.py` (`--outcome`); `README.md`, `docs/project-plan.md`, this file.
   Deviations: (1) No neutral status: a GitHub Actions job ends in success or failure only. Inconclusive and no outcome pass with a warning annotation, and the comment says "Neutral". A real neutral check would need the Checks API and `checks: write`, which a fork PR's token does not have. (2) Postgres starts with `make up` (Compose), as in `ci.yml`'s migrations job, not as a service container, so the image tag stays in `docker-compose.yml` alone. (3) The models and CUAD are downloaded on every run, not cached: they come to about 245 MB and `ci.yml` already downloads the models on every run. (4) The index cache is scoped to the PR: GitHub lets a PR read its own caches and its base branch's, and this workflow does not run on `main`, so each new PR builds the index once (the slow run) and later pushes to it restore it. Running the workflow's ingest on pushes to `main` would share one cache across PRs; not done. (5) CI ingests with the PR's code only. A PR that changes a chunker id or the corpus text leaves the baseline without the chunks or text it expects, and the gate cannot run (exit 2) or reports no outcome; that is the same limit as 4.7a's, now in CI. (6) The gate runs on every PR, including documentation-only ones; a path filter would skip those, but a path-filtered check can never report if it is ever made required.
   Blocked: on the user. The Verify needs a push and a test PR. A `pull_request` run uses the workflow as it is in the PR, so the PR that adds it can be the test: (a) commit this step on a branch, push it and open a PR to `main`; it changes no retrieval code, so the check should pass and post one comment; (b) push a second commit to the PR and check that the same comment is edited, not duplicated, and that this run restores the cached index; (c) optionally, a commit swapping `strategy: hybrid` for `dense` in `configs/s3-hybrid.yaml` should fail the check (revert it before merging). Record the run time with and without the cache.
-  Note (2026-11-05, during 4.9): the user committed this step to `main` and pushed it (a241321) without a PR. `ci.yml` ran on that push, but the gate runs on pull requests only, so it has still not run (`gh run list` shows no `retrieval-gate` run; the one PR so far, `gate-test`, was closed before the workflow existed). Since `gate.yml` is now on `main`, any PR to `main` runs it: step 4.9's own PR can be the test, (a) to (c) above unchanged. 4.9 changes no service code, so the check should Pass with [0, 0].
+  Note (2026-11-05, during 4.9): the user committed this step to `main` and pushed it (a241321) without a PR. `ci.yml` ran on that push, but the gate runs on pull requests only, so it has still not run (`gh run list` shows no `retrieval-gate` run; the one PR so far, `gate-test`, was closed before the workflow existed). Since `gate.yml` is now on `main`, any PR to `main` runs it, with (a) to (c) above unchanged. 4.9 was then committed to `main` as well.
+  Note (2026-11-05): still no `retrieval-gate` run. Suggested test: the PR for the plan's doc-budget change. It is docs-only, so the check should Pass with [0, 0].
 
 #### 4.8 [ ] Freeze retrieval configs and run CUAD test once (needs user go-ahead)
 - **Do:** only when the user says the retrieval configs are final: freeze them (config hashes in the plan), run the test split once per final config, record in `docs/results.md`. Never tune after seeing test numbers.
 - **Verify:** `docs/results.md` rows reference run IDs; a finding records which configs were frozen and when.
 - **Refs:** Design §8.1.
+- Go-ahead: 2026-11-05, the user: the retrieval configs are final.
+  - Frozen set: S1 to S4 on C1 at 256 (`configs/s1-fts.yaml`, `s2-dense.yaml`, `s3-hybrid.yaml`, `s4-rerank.yaml`). The C2 and C1-at-199 configs are experiments, not frozen.
+  - Run after 4.11 is committed, so the test runs store the character-recall metrics eval-spec §8 requires.
+  - 4.10's hosted embedder stays dev-only (point 8 there).
 
 #### 4.9 [x] ADRs and skill reference
 Claimed: Claude (Opus 5.5, VS Code session), 2026-11-05
@@ -138,3 +143,13 @@ Claimed: Claude (Opus 5.5, VS Code session), 2026-11-05
   8. Dev only (EVAL-CRITICAL-5). A test-split number for the hosted model exists only if it is among the configs frozen in 4.8.
 - **Verify:** both runs regenerate from one command each, and the hosted rerun makes no API calls (stored vectors plus the query cache); the comparison table shows deltas with 95% CIs and n; a provisional row in `docs/results.md`; a finding states the outcome as measured, including "no detectable difference" if that is what the CI says; ADR 0012 written; the key does not appear in any log (grep a run's log for it).
 - **Refs:** ADR 0011 (Consequences), Design §7, §8.5; skill DEP-HIGH-1 (pin model ids), SEC and reliability rules, EVAL-CRITICAL-3 and -5, EVAL-HIGH-2.
+
+#### 4.11 [ ] Gate chunker changes on character recall@512 (D8)
+- **Why:** D8, answered 2026-11-05. recall@k rewards bigger chunks (eval-spec §3.4, F-013), so a chunker change needs a budget metric.
+- **Do:**
+  - `ragcalibrate run` stores character precision and recall at B ∈ {256, 512, 1024, 2048} words per query. Eval-spec §8 already requires them; today only `scripts/measure_chunkers.py` computes them (`char_precision_recall_at_budget`, whitespace words per ADR 0004).
+  - `compare`: when the two runs' chunker ids differ, gate on character recall@512 with the same bootstrap; same-chunker comparisons keep recall@5.
+  - Amend eval-spec §6.1 and §6.3, and ADR 0007.
+- **Verify:** a hand-computed test of the stored metric; a test that a chunker change gates on character recall@512 and a same-chunker change on recall@5; S3 on C1 and on C2 rerun on dev (a dirty tree is fine for this check), with `compare` giving an outcome that agrees with F-013's S3 numbers at 512 words.
+- **Refs:** D8; eval-spec §3.4, §6.1, §6.3, §8; ADRs 0004 and 0007; F-013; the second note under 4.4.
+- Note: δ = 0.02 is borrowed from recall@5. This metric's false-alarm rate and power are unmeasured; say so in the spec unless `scripts/measure_power.py` can measure them cheaply.
