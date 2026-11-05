@@ -1,6 +1,6 @@
 # F-009: Prior-art check: three differentiators hold, the judge-agreement one must be narrowed
 
-- **Status:** confirmed (user decision pending on the Design §3 wording)
+- **Status:** resolved (2026-11-05: the user accepted the suggested wording; Design §3 and the README updated)
 - **Date:** 2026-10-19
 - **Found by:** Claude, plan step 1.1 (three research agents; key claims re-checked by Claude, see Evidence)
 - **Evidence level:** read from sources (official docs, registries, two papers, one code repo), each dated below; absence of a feature in docs is not proof of absence in code
@@ -36,11 +36,14 @@ Other points worth knowing:
 - Not verified: code of any tool (docs only), hosted or paid features, the Ragas blog on judge alignment, the content of TruLens 2.9.0 CI/CD examples, whether TruLens/Langfuse human labels are blind, ARES's PPI estimator and unlabeled-set size, ARES and LegalBench-RAG dataset licenses.
 
 ## Consequence
-- **User decision needed:** Design §3's table and the README's "Why not just use Ragas?" must not claim judge-human agreement as unique. Suggested wording: "Existing tools can compute judge-human agreement (TruLens and Langfuse report Cohen's kappa); none of those we checked reports a bootstrap CI on it, gates on a paired document-clustered interval, or measures the gate's false-alarm rate and power." I have not edited the design or the README; both stay as written until you decide.
+- **User decision needed:** Design §3's table and the README's "Why not just use Ragas?" must not claim judge-human agreement as unique. Suggested wording: "Existing tools can compute judge-human agreement (TruLens and Langfuse report Cohen's kappa); none of those we checked reports a bootstrap CI on it, gates on a paired document-clustered interval, or measures the gate's false-alarm rate and power." Accepted by the user on 2026-11-05 and applied (see Resolution).
 - Cite **Langfuse's `experiment-action`** and **TruLens's `cohens_kappa`** as nearest prior art; reviewers will cite them. The honest framing is that Langfuse treats regression deterministically per case and says averages mislead, which is a different answer to the same problem.
 - Cite **LegalBench-RAG** for character-level span metrics and say this project differs by per-document retrieval, a statistical gate and judge calibration. Do not quote its chunker ranking.
 - ARES's idea (PPI) stays a stretch goal (Design §8.4); the implementation must follow the PPI paper's estimator, not ARES's description.
 - These conclusions are about public documentation on 2026-10-19; DeepEval and Langfuse move fast, so the step that writes the README (9.x) repeats this check.
 
 ## Resolution
-Open until the user decides the Design §3 and README wording.
+2026-11-05, the user: use the suggested wording above. Applied by Claude the same day:
+- Design §3: the table's "TruLens, Langfuse evals" row is split in two; both rows say the tool reports κ as a point estimate, TruLens is named the nearest prior art on judge agreement and Langfuse's `experiment-action` the nearest on gating; the Ragas, promptfoo, ARES and LegalBench-RAG rows state what F-009 found; the preamble now says when the table was checked; the one-line differentiator stays, followed by the narrowed judge claim.
+- README §9, question 1 ("Why not just use Ragas?"), now gives the narrowed claim and the nearest prior art, and the prior-art paragraph in §10 says what is and is not claimed.
+- Still to do in step 9.x: repeat this check before the README's comparison is published (DeepEval and Langfuse move fast).
