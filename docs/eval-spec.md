@@ -115,7 +115,7 @@ Only the primary metric gates. Everything else is reported as secondary, non-gat
 - Design §8.5 names the judge faithfulness pass rate. Taken alone, that metric can be gamed: a prompt that abstains more often removes unfaithful answers from the denominator and looks better.
 - Decision: the primary metric is the **end-to-end correct rate** over all queries. A query is correct when the system abstains on an unanswerable query, or says present on an answerable query and is judged correct. This cannot be improved by always abstaining (answerable queries all fail) or by always answering (unanswerable queries all fail).
 - Faithfulness pass rate, over answers with `present=true`, is then a **guard metric**: two metrics gate together, so Holm-Bonferroni applies (Design §8.5), and each gate decision is made at the corrected level.
-- The design's version (faithfulness alone as primary) was rejected for the gaming reason above. The deviation from Design §8.5 is recorded in the plan change log and in ADR 0007 (step 4.9).
+- The design's version (faithfulness alone as primary) was rejected for the gaming reason above. The deviation from Design §8.5 is recorded in ADR 0007 (step 4.9).
 
 ### 6.2 Comparison
 
