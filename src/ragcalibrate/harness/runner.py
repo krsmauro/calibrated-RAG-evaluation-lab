@@ -113,7 +113,11 @@ async def execute(
                 response = await retrieve_with_retries(sut, request, sleep=sleep)
             check_response(config, response)
             result = score(response, gold_of[query.id])
-            await loop.run_in_executor(writer, store.add_query, run_id, result)
+            # Shielded: when the run stops (an error, Ctrl-C), cancelling this task must not
+            # cancel a write still queued behind a slow one, or answers already scored are
+            # dropped (CI lost all of them on a slow runner). Leaving the `with` block below
+            # waits for every queued write.
+            await asyncio.shield(loop.run_in_executor(writer, store.add_query, run_id, result))
             done += 1
             if done % PROGRESS_EVERY == 0:
                 total = len(stored) + done

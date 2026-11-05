@@ -70,6 +70,7 @@ def answer(request: RetrieveRequest, embedder_id: str | None = None) -> Retrieve
 class FakeSut:
     def __init__(self, *, fail_on_call: int | None = None, embedder_id: str | None = None) -> None:
         self.calls = 0
+        self.answered = 0  # requests that got an answer: each is scored and must be stored
         self.fail_on_call = fail_on_call
         self.embedder_id = embedder_id
         self.reached = asyncio.Event()
@@ -80,6 +81,7 @@ class FakeSut:
         await asyncio.sleep(0)  # let other queries run, as a real request would
         if call == self.fail_on_call:
             raise SutError(400, "bad_request", "planted")
+        self.answered += 1
         return answer(request, self.embedder_id)
 
 
@@ -96,6 +98,7 @@ class BlockingSut(FakeSut):
             self.reached.set()
             await asyncio.Event().wait()  # never set
         await asyncio.sleep(0)
+        self.answered += 1
         return answer(request)
 
 
@@ -139,10 +142,12 @@ async def test_a_run_stopped_by_an_error_resumes_to_the_rows_of_an_unstopped_run
 ) -> None:
     with open_store(tmp_path, "whole", "stopped") as store:
         await run(store, "whole", FakeSut())
+        stopped = FakeSut(fail_on_call=15)
         with pytest.raises(RunFailed, match="SutError: 400 bad_request: planted"):
-            await run(store, "stopped", FakeSut(fail_on_call=15))
+            await run(store, "stopped", stopped)
         kept = len(store.query_ids("stopped"))
         assert 0 < kept < len(QUERIES)  # stopped midway, with whole queries stored
+        assert kept == stopped.answered  # every answer it got was stored
 
         resumed = FakeSut()
         assert await run(store, "stopped", resumed) == len(QUERIES) - kept
@@ -163,9 +168,35 @@ async def test_a_cancelled_run_resumes_to_the_rows_of_an_unstopped_run(tmp_path:
             await task
         kept = len(store.query_ids("killed"))
         assert 0 < kept <= 12
+        assert kept == sut.answered  # every answer it got was stored
 
         assert await run(store, "killed", FakeSut()) == len(QUERIES) - kept
         assert store.queries("killed") == store.queries("whole")
+
+
+async def test_answers_queued_behind_a_slow_write_are_stored_when_the_run_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CI's failure, made certain: the store's thread is held on its first write while the run
+    # fails, so the answers scored meanwhile wait in its queue. They must be stored, not dropped
+    # with the run. A timer lets the held write go, so leaving the run does not wait forever.
+    release = threading.Event()
+    add_query = RunStore.add_query
+
+    def held(self: RunStore, run_id: str, result: QueryResult) -> None:
+        release.wait(timeout=5)
+        add_query(self, run_id, result)
+
+    monkeypatch.setattr(RunStore, "add_query", held)
+    with open_store(tmp_path, "stopped") as store:
+        sut = FakeSut(fail_on_call=15)
+        timer = threading.Timer(0.2, release.set)
+        timer.start()
+        with pytest.raises(RunFailed, match="planted"):
+            await run(store, "stopped", sut)
+        timer.join()
+        assert sut.answered > 1  # answers were queued behind the held write
+        assert len(store.query_ids("stopped")) == sut.answered
 
 
 async def test_store_writes_run_off_the_event_loop_one_at_a_time(
